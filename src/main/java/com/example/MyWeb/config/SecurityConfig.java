@@ -41,7 +41,14 @@ public class SecurityConfig {
                 // PHÂN QUYỀN
                 .authorizeHttpRequests(auth -> auth
                         // Cho phép các endpoint này không cần token
-                        .requestMatchers("/api/v1/health", "/api/v1/auth/**").permitAll()
+                        .requestMatchers("/api/v1/health", "/api/v1/auth/**", "/api/v1/categories/**",
+                                "/api/v1/products/**", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**",
+                                "/swagger-resources/**", "/webjars/**", "/openapi.yaml", "/openapi.json")
+
+                        .permitAll()
+                        // ADMIN
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+
                         // Các endpoint khác phải có token
                         .anyRequest().authenticated())
 
@@ -51,7 +58,13 @@ public class SecurityConfig {
 
                 // Cấu hình AuthenticationProvider + filter JWT
                 .authenticationProvider(authenticationProvider())
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+
+                // Xử lý lỗi: 401 khi chưa login, 403 khi không đủ quyền
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint(
+                                new org.springframework.security.web.authentication.HttpStatusEntryPoint(
+                                        org.springframework.http.HttpStatus.UNAUTHORIZED)));
 
         return http.build();
     }

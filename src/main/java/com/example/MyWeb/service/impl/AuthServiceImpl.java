@@ -1,21 +1,29 @@
 package com.example.MyWeb.service.impl;
 
+import com.example.MyWeb.repository.PasswordResetTokenRepository;
+import com.example.MyWeb.security.JwtBlacklistService;
+import com.example.MyWeb.security.JwtService;
+
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import com.example.MyWeb.dto.auth.ChangePasswordRequest;
+import com.example.MyWeb.dto.auth.ForgotPasswordRequest;
 import com.example.MyWeb.dto.auth.LoginRequest;
 import com.example.MyWeb.dto.auth.LoginResponse;
 import com.example.MyWeb.dto.auth.RegisterRequest;
+import com.example.MyWeb.dto.auth.ResetPasswordRequest;
 import com.example.MyWeb.dto.user.UserResponse;
 import com.example.MyWeb.model.CustomerProfile;
+import com.example.MyWeb.model.PasswordResetToken;
 import com.example.MyWeb.model.Role;
 import com.example.MyWeb.model.User;
 import com.example.MyWeb.repository.CustomerProfileRepository;
 import com.example.MyWeb.repository.RoleRepository;
 import com.example.MyWeb.repository.UserRepository;
-import com.example.MyWeb.security.JwtService;
+
 import com.example.MyWeb.service.AuthService;
 
 import lombok.RequiredArgsConstructor;
@@ -38,6 +46,8 @@ public class AuthServiceImpl implements AuthService {
         private final PasswordEncoder passwordEncoder;
         private final AuthenticationManager authenticationManager;
         private final JwtService jwtService;
+        private final PasswordResetTokenRepository passwordResetTokenRepository;
+        private final JwtBlacklistService jwtBlacklistService;
 
         @Override
         public UserResponse register(RegisterRequest request) {
@@ -122,5 +132,63 @@ public class AuthServiceImpl implements AuthService {
                                 .accessToken(token)
                                 .user(userResponse)
                                 .build();
+        }
+
+        // Forgot password: sinh token reset, lưu DB, (demo) trả về qua log/console
+        @Override
+        public void forgotPassword(ForgotPasswordRequest req) {
+                User user = userRepository.findByEmail(req.getEmail())
+                                .orElseThrow(() -> new RuntimeException("Email not found"));
+
+                String token = java.util.UUID.randomUUID().toString();
+                PasswordResetToken prt = PasswordResetToken.builder()
+                                .token(token)
+                                .user(user)
+                                .expiresAt(java.time.LocalDateTime.now().plusMinutes(30))
+                                .used(false)
+                                .build();
+                passwordResetTokenRepository.save(prt);
+
+                // TODO: gửi email chứa link reset, ví dụ:
+                // https://your-frontend/reset-password?token=...
+                System.out.println("RESET TOKEN for " + user.getEmail() + ": " + token);
+        }
+
+        // Reset password bằng token
+        @Override
+        public void resetPassword(ResetPasswordRequest req) {
+                PasswordResetToken prt = passwordResetTokenRepository.findByToken(req.getToken())
+                                .orElseThrow(() -> new RuntimeException("Invalid token"));
+                if (prt.isUsed() || prt.getExpiresAt().isBefore(java.time.LocalDateTime.now())) {
+                        throw new RuntimeException("Token expired/used");
+                }
+                User user = prt.getUser();
+                user.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
+                user.setUpdatedAt(java.time.LocalDateTime.now());
+                userRepository.save(user);
+
+                prt.setUsed(true);
+                passwordResetTokenRepository.save(prt);
+        }
+
+        // Đổi mật khẩu (đang đăng nhập)
+        @Override
+        public void changePassword(Long userId, ChangePasswordRequest req) {
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found"));
+
+                if (!passwordEncoder.matches(req.getOldPassword(), user.getPasswordHash())) {
+                        throw new RuntimeException("Old password not match");
+                }
+                user.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
+                user.setUpdatedAt(java.time.LocalDateTime.now());
+                userRepository.save(user);
+        }
+
+        // Logout: đưa token hiện tại vào blacklist
+        @Override
+        public void logout(String token) {
+                long exp = jwtService.getExpirationEpochSeconds(token); // implement hàm này trong JwtService
+                jwtBlacklistService.blacklist(token, exp);
         }
 }

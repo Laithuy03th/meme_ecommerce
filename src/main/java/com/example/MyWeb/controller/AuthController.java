@@ -1,13 +1,20 @@
 package com.example.MyWeb.controller;
 
+import com.example.MyWeb.dto.auth.ChangePasswordRequest;
+import com.example.MyWeb.dto.auth.ForgotPasswordRequest;
 import com.example.MyWeb.dto.auth.LoginRequest;
 import com.example.MyWeb.dto.auth.LoginResponse;
 import com.example.MyWeb.dto.auth.RegisterRequest;
+import com.example.MyWeb.dto.auth.ResetPasswordRequest;
 import com.example.MyWeb.dto.user.UserResponse;
 import com.example.MyWeb.service.AuthService;
+
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -27,5 +34,38 @@ public class AuthController {
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         LoginResponse res = authService.login(request);
         return ResponseEntity.ok(res);
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
+        authService.forgotPassword(req);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest req) {
+        authService.resetPassword(req);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/change-password")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest req) {
+        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getDetails();
+        // nếu bạn không set details là userId trong filter, có thể lấy từ claims:
+        // Long userId = jwtService.extractUserIdFromAuth();
+        authService.changePassword(userId, req);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/logout")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> logout(HttpServletRequest request) {
+        String auth = request.getHeader("Authorization");
+        if (auth != null && auth.startsWith("Bearer ")) {
+            String token = auth.substring(7);
+            authService.logout(token);
+        }
+        return ResponseEntity.noContent().build();
     }
 }

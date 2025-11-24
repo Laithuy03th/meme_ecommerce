@@ -15,6 +15,7 @@ public class AddressRequest {
     @NotBlank
     private String addressLine1;
     private String ward;
+
     private String district;
     private String province;
     private String country = "Vietnam";

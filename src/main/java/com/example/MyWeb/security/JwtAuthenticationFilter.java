@@ -30,20 +30,33 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = parseJwt(request);
 
-        if (token != null && jwtService.validateToken(token)) {
-            String email = jwtService.getSubjectFromToken(token);
+        if (token != null) {
+            boolean isValid = jwtService.validateToken(token);
+            System.out.println("JwtAuthenticationFilter: Token found. Valid? " + isValid);
 
-            UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+            if (isValid) {
+                String email = jwtService.getSubjectFromToken(token);
+                System.out.println("JwtAuthenticationFilter: Email from token: " + email);
 
-            UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                    userDetails,
-                    null,
-                    userDetails.getAuthorities());
+                UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+                System.out.println("JwtAuthenticationFilter: User loaded: " + userDetails.getUsername()
+                        + ", Authorities: " + userDetails.getAuthorities());
 
-            authToken.setDetails(
-                    new WebAuthenticationDetailsSource().buildDetails(request));
+                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                        userDetails,
+                        null,
+                        userDetails.getAuthorities());
 
-            SecurityContextHolder.getContext().setAuthentication(authToken);
+                authToken.setDetails(
+                        new WebAuthenticationDetailsSource().buildDetails(request));
+
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+                System.out.println("JwtAuthenticationFilter: Authentication set in SecurityContext");
+            } else {
+                System.out.println("JwtAuthenticationFilter: Token is invalid");
+            }
+        } else {
+            System.out.println("JwtAuthenticationFilter: No token found in request to " + request.getRequestURI());
         }
 
         filterChain.doFilter(request, response);

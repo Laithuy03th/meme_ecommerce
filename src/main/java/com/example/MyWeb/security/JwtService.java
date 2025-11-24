@@ -46,6 +46,7 @@ public class JwtService {
             parseClaims(token);
             return true;
         } catch (JwtException | IllegalArgumentException ex) {
+            System.out.println("JwtService: Token validation failed: " + ex.getMessage());
             return false;
         }
     }
@@ -56,4 +57,14 @@ public class JwtService {
                 .build()
                 .parseClaimsJws(token);
     }
+
+    public Claims extractAllClaims(String token) {
+        return parseClaims(token).getBody();
+    }
+
+    public long getExpirationEpochSeconds(String token) {
+        var claims = extractAllClaims(token);
+        return claims.getExpiration().toInstant().getEpochSecond();
+    }
+
 }

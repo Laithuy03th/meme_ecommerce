@@ -1,0 +1,1612 @@
+openapi: 3.0.3
+info:
+  title: MyWeb E-commerce API
+  version: "1.0.0"
+  description: |
+    REST API for MyWeb ecommerce (clothes, dresses, shoes).
+    
+    **Auth**: JWT Bearer. Public endpoints: `/api/v1/health`, `/api/v1/auth/**`, `/api/v1/categories/**`, `/api/v1/products/**`.
+    All others require JWT. Admin endpoints additionally require `ROLE_ADMIN`.
+servers:
+  - url: http://localhost:8080
+    description: Local dev
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PageParam:
+      in: query
+      name: page
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      description: 0-based page index
+    SizeParam:
+      in: query
+      name: size
+      schema:
+        type: integer
+        minimum: 1
+        default: 20
+      description: Page size
+    ProductSortParam:
+      in: query
+      name: sortBy
+      schema:
+        type: string
+        enum: [newest, oldest, priceAsc, priceDesc]
+        default: newest
+      description: Sort option
+    ProductKeywordParam:
+      in: query
+      name: keyword
+      schema:
+        type: string
+      description: Full-text keyword for products
+    ProductCategoryParam:
+      in: query
+      name: category
+      schema:
+        type: string
+      description: Category slug filter
+    CommonStatusParam:
+      in: query
+      name: status
+      schema:
+        type: string
+      description: Optional status filter
+
+  responses:
+    Unauthorized:
+      description: Missing/invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Not allowed (e.g., missing ADMIN role)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+    Problem:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        path:
+          type: string
+
+    # ---- Auth / User ----
+    RegisterRequest:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        fullName:
+          type: string
+        phone:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+        fullName:
+          type: string
+        phone:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          example: Bearer
+        user:
+          $ref: '#/components/schemas/UserResponse'
+    UpdateProfileRequest:
+      type: object
+      properties:
+        fullName:
+          type: string
+        phone:
+          type: string
+          description: Pattern ^[0-9+\-()\s]{6,20}$
+        gender:
+          type: string
+          description: Optional. Example values MALE/FEMALE/OTHER
+        dateOfBirth:
+          type: string
+          description: Optional ISO-8601 yyyy-MM-dd
+    ChangePasswordRequest:
+      type: object
+      required: [oldPassword, newPassword]
+      properties:
+        oldPassword: { type: string, format: password }
+        newPassword: { type: string, format: password }
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token: { type: string }
+        newPassword: { type: string, format: password }
+
+    # ---- Address ----
+    AddressRequest:
+      type: object
+      required: [fullName, phone, addressLine1]
+      properties:
+        fullName:
+          type: string
+        phone:
+          type: string
+        addressLine1:
+          type: string
+        ward:
+          type: string
+        district:
+          type: string
+        province:
+          type: string
+        country:
+          type: string
+          default: Vietnam
+        isDefault:
+          type: boolean
+          default: false
+    AddressResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        fullName:
+          type: string
+        phone:
+          type: string
+        addressLine1:
+          type: string
+        ward:
+          type: string
+        district:
+          type: string
+        province:
+          type: string
+        country:
+          type: string
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    # ---- Category ----
+    CategoryResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+          nullable: true
+
+    # ---- Product ----
+    AdminProductRequest:
+      type: object
+      required: [name, slug, categoryId, basePrice]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        shortDesc:
+          type: string
+        longDesc:
+          type: string
+        categoryId:
+          type: integer
+          format: int64
+        basePrice:
+          type: number
+          format: double
+        thumbnailUrl:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, DRAFT]
+    AdminProductResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        slug:
+          type: string
+        shortDesc:
+          type: string
+        longDesc:
+          type: string
+        categoryId:
+          type: integer
+          format: int64
+        categoryName:
+          type: string
+        categorySlug:
+          type: string
+        basePrice:
+          type: number
+          format: double
+        thumbnailUrl:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, DRAFT]
+    ProductImageResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        imageUrl:
+          type: string
+        thumbnail:
+          type: boolean
+        sortOrder:
+          type: integer
+    ProductVariantResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        sku:
+          type: string
+        color:
+          type: string
+        size:
+          type: string
+        price:
+          type: number
+          format: double
+          nullable: true
+        stock:
+          type: integer
+        status:
+          type: string
+    ProductListItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        slug:
+          type: string
+        thumbnailUrl:
+          type: string
+        price:
+          type: number
+          format: double
+        categorySlug:
+          type: string
+        categoryName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    ProductDetailResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        slug:
+          type: string
+        shortDesc:
+          type: string
+        longDesc:
+          type: string
+        categorySlug:
+          type: string
+        categoryName:
+          type: string
+        basePrice:
+          type: number
+          format: double
+        thumbnailUrl:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, DRAFT]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductImageResponse'
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductVariantResponse'
+
+    # ---- Cart ----
+    CartItemRequest:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId:
+          type: integer
+          format: int64
+        variantId:
+          type: integer
+          format: int64
+          nullable: true
+        quantity:
+          type: integer
+          minimum: 1
+    UpdateCartItemRequest:
+      type: object
+      required: [quantity]
+      properties:
+        quantity:
+          type: integer
+          minimum: 1
+    CartItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        productId:
+          type: integer
+          format: int64
+        variantId:
+          type: integer
+          format: int64
+          nullable: true
+        productName:
+          type: string
+        productSlug:
+          type: string
+        thumbnailUrl:
+          type: string
+        color:
+          type: string
+        size:
+          type: string
+        unitPrice:
+          type: number
+          format: double
+        quantity:
+          type: integer
+        totalPrice:
+          type: number
+          format: double
+    CartResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        totalAmount:
+          type: number
+          format: double
+        totalItems:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItemResponse'
+
+    # ---- Orders ----
+    CheckoutRequest:
+      type: object
+      required: [addressId, paymentMethod]
+      properties:
+        addressId:
+          type: integer
+          format: int64
+        paymentMethod:
+          type: string
+          enum: [COD, VNPAY, MOMO]
+        note:
+          type: string
+    OrderItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        productId:
+          type: integer
+          format: int64
+        variantId:
+          type: integer
+          format: int64
+          nullable: true
+        productName:
+          type: string
+        productSlug:
+          type: string
+        thumbnailUrl:
+          type: string
+        color:
+          type: string
+        size:
+          type: string
+        unitPrice:
+          type: number
+          format: double
+        quantity:
+          type: integer
+        totalPrice:
+          type: number
+          format: double
+    OrderResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [PENDING, PAID, SHIPPED, COMPLETED, CANCELED]
+        paymentStatus:
+          type: string
+          enum: [UNPAID, PAID, FAILED]
+        paymentMethod:
+          type: string
+          enum: [COD, VNPAY, MOMO]
+        totalAmount:
+          type: number
+          format: double
+        shippingFee:
+          type: number
+          format: double
+        note:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemResponse'
+
+    AdminOrderSummaryResponse:
+      type: object
+      description: Summary used in /api/v1/admin/orders (dto.order)
+      properties:
+        id:
+          type: integer
+          format: int64
+        userEmail:
+          type: string
+        shippingFullName:
+          type: string
+        totalAmount:
+          type: number
+          format: double
+        shippingFee:
+          type: number
+          format: double
+        status:
+          type: string
+          enum: [PENDING, PAID, SHIPPED, COMPLETED, CANCELED]
+        paymentMethod:
+          type: string
+          enum: [COD, VNPAY, MOMO]
+        paymentStatus:
+          type: string
+          enum: [UNPAID, PAID, FAILED]
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminOrderItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        productId:
+          type: integer
+          format: int64
+        productName:
+          type: string
+        unitPrice:
+          type: number
+          format: double
+        quantity:
+          type: integer
+        lineTotal:
+          type: number
+          format: double
+
+    AdminOrderDetailResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [PENDING, PAID, SHIPPED, COMPLETED, CANCELED]
+        paymentMethod:
+          type: string
+          enum: [COD, VNPAY, MOMO]
+        paymentStatus:
+          type: string
+          enum: [UNPAID, PAID, FAILED]
+        totalAmount:
+          type: number
+          format: double
+        shippingFee:
+          type: number
+          format: double
+        note:
+          type: string
+        userId:
+          type: integer
+          format: int64
+        userEmail:
+          type: string
+        shippingFullName:
+          type: string
+        shippingPhone:
+          type: string
+        shippingAddressLine1:
+          type: string
+        shippingWard:
+          type: string
+        shippingDistrict:
+          type: string
+        shippingProvince:
+          type: string
+        shippingCountry:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderItemResponse'
+
+    UpdateOrderStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [PENDING, PAID, SHIPPED, COMPLETED, CANCELED]
+
+    AdminUserListItemResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+        fullName:
+          type: string
+        phone:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, BLOCKED]
+        roles:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminUserOrderSummaryResponse:
+      type: object
+      description: Summary inside AdminUserDetailResponse (dto.admin)
+      properties:
+        id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [PENDING, PAID, SHIPPED, COMPLETED, CANCELED]
+        paymentStatus:
+          type: string
+          enum: [UNPAID, PAID, FAILED]
+        totalAmount:
+          type: number
+          format: double
+        shippingFee:
+          type: number
+          format: double
+        createdAt:
+          type: string
+          format: date-time
+
+    AdminUserDetailResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, BLOCKED]
+        roles:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        fullName:
+          type: string
+        phone:
+          type: string
+        gender:
+          type: string
+        dateOfBirth:
+          type: string
+          format: date
+          nullable: true
+        addresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddressResponse'
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUserOrderSummaryResponse'
+    AdminCreateUserRequest:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+        fullName: { type: string }
+        phone: { type: string }
+        roles:
+          type: array
+          description: "Optional. Example: ['ADMIN', 'CUSTOMER']"
+          items:
+            type: string
+
+    AdminUpdateUserRolesRequest:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          items: { type: string }
+
+    AdminResetPasswordRequest:
+      type: object
+      required: [newPassword]
+      properties:
+        newPassword: { type: string, format: password }
+
+    # ---- Page wrappers (use 'number' like Spring Page JSON) ----
+    Page_AdminProductResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminProductResponse'
+        number:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+    Page_ProductListItemResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductListItemResponse'
+        number:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+    Page_OrderResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderResponse'
+        number:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+    Page_AdminOrderSummaryResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminOrderSummaryResponse'
+        number:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+    Page_AdminUserListItemResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUserListItemResponse'
+        number:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+
+paths:
+  # ---- Health ----
+  /api/v1/health:
+    get:
+      security: []
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+  /api/v1/secure/hello:
+    get:
+      summary: Secured hello test
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---- Auth ----
+  /api/v1/auth/register:
+    post:
+      security: []
+      summary: Register a new user (customer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/auth/login:
+    post:
+      security: []
+      summary: Login and get JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/auth/forgot-password:
+    post:
+      security: []
+      summary: Request password reset token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ForgotPasswordRequest' }
+      responses:
+        '204': { description: No Content }
+
+  /api/v1/auth/reset-password:
+    post:
+      security: []
+      summary: Reset password using token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
+      responses:
+        '204': { description: No Content }
+
+  /api/v1/auth/change-password:
+    post:
+      summary: Change password (authenticated)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '204': { description: No Content }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/auth/logout:
+    post:
+      summary: Logout (blacklist current JWT)
+      responses:
+        '204': { description: No Content }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---- Users (me) ----
+  /api/v1/users/me:
+    get:
+      summary: Get current user profile
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---- Addresses (me) ----
+  /api/v1/users/me/addresses:
+    get:
+      summary: List my addresses
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AddressResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      summary: Create address
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressRequest'
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddressResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/users/me/addresses/{id}:
+    put:
+      summary: Update address
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddressRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddressResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Delete address
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: No Content
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/users/me/addresses/{id}/default:
+    post:
+      summary: Set default address
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddressResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Cart (me) ----
+  /api/v1/users/me/cart:
+    get:
+      summary: Get my cart
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/users/me/cart/items:
+    post:
+      summary: Add item to cart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/users/me/cart/items/{itemId}:
+    put:
+      summary: Update cart item quantity
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCartItemRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      summary: Remove item from cart
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK (cart after removal)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Orders (me) ----
+  /api/v1/users/me/orders/checkout:
+    post:
+      summary: Checkout current cart -> create order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+      responses:
+        '200':
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/users/me/orders:
+    get:
+      summary: List my orders
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page_OrderResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/users/me/orders/{orderId}:
+    get:
+      summary: Get my order detail
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Products (public) ----
+  /api/v1/products:
+    get:
+      security: []
+      summary: List products (public)
+      parameters:
+        - $ref: '#/components/parameters/ProductCategoryParam'
+        - $ref: '#/components/parameters/ProductKeywordParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/ProductSortParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page_ProductListItemResponse'
+  /api/v1/products/slug/{slug}:
+    get:
+      security: []
+      summary: Get product by slug (public)
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetailResponse'
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/products/{id}:
+    get:
+      security: []
+      summary: Get product by id (public)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetailResponse'
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Categories (public) ----
+  /api/v1/categories:
+    get:
+      security: []
+      summary: List active categories (public)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategoryResponse'
+
+  # ---- Admin: Products ----
+  /api/v1/admin/products:
+    post:
+      summary: Create product (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminProductRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      summary: List products (ADMIN)
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page_AdminProductResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/products/{id}:
+    get:
+      summary: Get product detail (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      summary: Update product (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminProductRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Delete product (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: No Content
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Admin: Orders ----
+  /api/v1/admin/orders:
+    get:
+      summary: List orders (ADMIN)
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - $ref: '#/components/parameters/CommonStatusParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page_AdminOrderSummaryResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/orders/{orderId}:
+    get:
+      summary: Order detail (ADMIN)
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrderDetailResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/orders/{orderId}/status:
+    patch:
+      summary: Update order status (ADMIN)
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderStatusRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminOrderDetailResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Admin: Users ----
+  /api/v1/admin/users:
+    get:
+      summary: List users (ADMIN)
+      parameters:
+        - in: query
+          name: role
+          schema:
+            type: string
+          description: Optional role filter (e.g., ADMIN or CUSTOMER)
+        - $ref: '#/components/parameters/CommonStatusParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page_AdminUserListItemResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      summary: Create user (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminCreateUserRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUserDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/admin/users/{userId}:
+    get:
+      summary: User detail (ADMIN)
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserDetailResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/users/{userId}/status:
+    patch:
+      summary: Update user status (ADMIN)
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [ACTIVE, BLOCKED]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserDetailResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/users/{userId}/roles:
+    patch:
+      summary: Replace user roles (ADMIN)
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminUpdateUserRolesRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUserDetailResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/users/{userId}/password:
+    patch:
+      summary: Reset user password (ADMIN)
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminResetPasswordRequest' }
+      responses:
+        '204': { description: No Content }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
