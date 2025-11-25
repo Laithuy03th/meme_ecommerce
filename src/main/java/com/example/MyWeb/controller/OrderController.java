@@ -48,4 +48,11 @@ public class OrderController {
         Long userId = getCurrentUserId();
         return ResponseEntity.ok(orderService.getMyOrderDetail(userId, orderId));
     }
+
+    // PUT /api/v1/users/me/orders/{orderId}/cancel
+    @PutMapping("/{orderId}/cancel")
+    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable Long orderId) {
+        Long userId = getCurrentUserId();
+        return ResponseEntity.ok(orderService.cancelOrder(userId, orderId));
+    }
 }

@@ -21,6 +21,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // Filter theo role
     Page<User> findDistinctByRoles_CodeOrderByCreatedAtDesc(String roleCode, Pageable pageable);
 
+    // Dashboard
+    Long countByCreatedAtAfter(java.time.LocalDateTime createdAt);
+
     // Filter theo cả status + role
     Page<User> findDistinctByStatusAndRoles_CodeOrderByCreatedAtDesc(String status, String roleCode, Pageable pageable);
 }

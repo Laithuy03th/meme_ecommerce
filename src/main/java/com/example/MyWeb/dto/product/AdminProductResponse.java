@@ -18,6 +18,7 @@ public class AdminProductResponse {
     private String categoryName;
     private String categorySlug;
     private Double basePrice;
+    private Integer stockQuantity;
     private String thumbnailUrl;
     private String status;
 }

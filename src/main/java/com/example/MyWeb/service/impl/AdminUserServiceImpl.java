@@ -28,6 +28,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import com.example.MyWeb.model.enums.UserStatus;
+
 @Service
 @RequiredArgsConstructor
 public class AdminUserServiceImpl implements AdminUserService {
@@ -85,7 +87,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                 return AdminUserListItemResponse.builder()
                                 .id(user.getId())
                                 .email(user.getEmail())
-                                .status(user.getStatus())
+                                .status(user.getStatus().name())
                                 .roles(roleCodes)
                                 .createdAt(user.getCreatedAt())
                                 .fullName(profile != null ? profile.getFullName() : null)
@@ -113,11 +115,14 @@ public class AdminUserServiceImpl implements AdminUserService {
                 }
 
                 String normalized = status.trim().toUpperCase();
-                if (!normalized.equals("ACTIVE") && !normalized.equals("BLOCKED")) {
-                        throw new RuntimeException("Invalid status, must be ACTIVE or BLOCKED");
+                UserStatus us;
+                try {
+                        us = UserStatus.valueOf(normalized);
+                } catch (IllegalArgumentException e) {
+                        throw new RuntimeException("Invalid status: " + status);
                 }
 
-                user.setStatus(normalized);
+                user.setStatus(us);
                 userRepository.save(user);
 
                 return buildDetailDto(user);
@@ -147,7 +152,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                 return AdminUserDetailResponse.builder()
                                 .id(user.getId())
                                 .email(user.getEmail())
-                                .status(user.getStatus())
+                                .status(user.getStatus().name())
                                 .roles(roleCodes)
                                 .createdAt(user.getCreatedAt())
                                 .updatedAt(user.getUpdatedAt())
@@ -165,8 +170,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         private AdminOrderSummaryResponse toOrderSummaryDto(Order order) {
                 return AdminOrderSummaryResponse.builder()
                                 .id(order.getId())
-                                .status(order.getStatus())
-                                .paymentStatus(order.getPaymentStatus())
+                                .status(order.getStatus().name())
+                                .paymentStatus(order.getPaymentStatus().name())
                                 .totalAmount(order.getTotalAmount())
                                 .shippingFee(order.getShippingFee())
                                 .createdAt(order.getCreatedAt())
@@ -187,7 +192,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                 User user = User.builder()
                                 .email(req.getEmail())
                                 .passwordHash(passwordEncoder.encode(req.getPassword()))
-                                .status("ACTIVE")
+                                .status(UserStatus.ACTIVE)
                                 .roles(roles)
                                 .createdAt(java.time.LocalDateTime.now())
                                 .updatedAt(java.time.LocalDateTime.now())

@@ -31,7 +31,9 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .categoryId(p.getCategory() != null ? p.getCategory().getId() : null)
                 .categoryName(p.getCategory() != null ? p.getCategory().getName() : null)
                 .categorySlug(p.getCategory() != null ? p.getCategory().getSlug() : null)
+                .categorySlug(p.getCategory() != null ? p.getCategory().getSlug() : null)
                 .basePrice(p.getBasePrice())
+                .stockQuantity(p.getStockQuantity())
                 .thumbnailUrl(p.getThumbnailUrl())
                 .status(p.getStatus())
                 .build();
@@ -40,8 +42,16 @@ public class AdminProductServiceImpl implements AdminProductService {
     @Override
     public AdminProductResponse create(AdminProductRequest request) {
 
-        if (productRepository.existsBySlug(request.getSlug())) {
-            throw new RuntimeException("Product slug already exists");
+        String slug = request.getSlug();
+        if (slug == null || slug.trim().isEmpty()) {
+            slug = generateSlug(request.getName());
+        }
+
+        if (productRepository.existsBySlug(slug)) {
+            // Nếu auto-generated slug trùng, thêm suffix random hoặc timestamp (đơn giản
+            // hoá: throw error để admin tự sửa)
+            // Hoặc tốt hơn: append random string
+            slug = slug + "-" + System.currentTimeMillis();
         }
 
         Category category = categoryRepository.findById(request.getCategoryId())
@@ -51,11 +61,13 @@ public class AdminProductServiceImpl implements AdminProductService {
 
         Product p = Product.builder()
                 .name(request.getName())
-                .slug(request.getSlug())
+                .slug(slug)
                 .shortDesc(request.getShortDesc())
                 .longDesc(request.getLongDesc())
                 .category(category)
+                .category(category)
                 .basePrice(request.getBasePrice())
+                .stockQuantity(request.getStockQuantity())
                 .thumbnailUrl(request.getThumbnailUrl())
                 .status(request.getStatus() != null ? request.getStatus() : "ACTIVE")
                 .createdAt(now)
@@ -65,6 +77,17 @@ public class AdminProductServiceImpl implements AdminProductService {
         p = productRepository.save(p);
 
         return toDto(p);
+    }
+
+    private String generateSlug(String name) {
+        if (name == null)
+            return "";
+        String slug = name.toLowerCase();
+        slug = java.text.Normalizer.normalize(slug, java.text.Normalizer.Form.NFD);
+        slug = slug.replaceAll("[\\p{InCombiningDiacriticalMarks}]", "");
+        slug = slug.replaceAll("[^a-z0-9\\s-]", "");
+        slug = slug.replaceAll("\\s+", "-");
+        return slug;
     }
 
     @Override
@@ -88,6 +111,8 @@ public class AdminProductServiceImpl implements AdminProductService {
             p.setLongDesc(request.getLongDesc());
         if (request.getBasePrice() != null)
             p.setBasePrice(request.getBasePrice());
+        if (request.getStockQuantity() != null)
+            p.setStockQuantity(request.getStockQuantity());
         if (request.getThumbnailUrl() != null)
             p.setThumbnailUrl(request.getThumbnailUrl());
         if (request.getStatus() != null)

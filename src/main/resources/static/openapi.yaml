@@ -10,6 +10,39 @@ info:
 servers:
   - url: http://localhost:8080
     description: Local dev
+
+tags:
+  - name: "CLIENT - Authentication"
+    description: "User authentication endpoints"
+  - name: "CLIENT - Profile & Addresses"
+    description: "User profile and address management"
+  - name: "CLIENT - Products & Catalog"
+    description: "Browse products, categories, search"
+  - name: "CLIENT - Cart"
+    description: "Shopping cart management"
+  - name: "CLIENT - Wishlist"
+    description: "Favorite products management"
+  - name: "CLIENT - Orders"
+    description: "Order placement and tracking"
+  - name: "CLIENT - Reviews"
+    description: "Product reviews and ratings"
+  - name: "CLIENT - Vouchers"
+    description: "Discount voucher validation"
+  - name: "ADMIN - Dashboard"
+    description: "Admin statistics and analytics"
+  - name: "ADMIN - User Management"
+    description: "Manage users, roles, permissions"
+  - name: "ADMIN - Product Management"
+    description: "CRUD operations for products"
+  - name: "ADMIN - Order Management"
+    description: "View and update order status"
+  - name: "ADMIN - Voucher Management"
+    description: "Create and manage discount vouchers"
+  - name: "ADMIN - Review Moderation"
+    description: "Moderate user reviews"
+  - name: "ADMIN - File Management"
+    description: "Upload images and files"
+
 security:
   - bearerAuth: []
 
@@ -268,6 +301,8 @@ components:
         basePrice:
           type: number
           format: double
+        stockQuantity:
+          type: integer
         thumbnailUrl:
           type: string
         status:
@@ -297,6 +332,8 @@ components:
         basePrice:
           type: number
           format: double
+        stockQuantity:
+          type: integer
         thumbnailUrl:
           type: string
         status:
@@ -849,6 +886,65 @@ components:
         totalPages:
           type: integer
 
+    # ---- Wishlist ----
+    WishlistResponse:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        product: { $ref: '#/components/schemas/ProductListItemResponse' }
+        createdAt: {type: string, format: date-time}
+
+    # ---- Reviews ----
+    ReviewResponse:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        userFullName: {type: string}
+        rating: {type: integer, minimum: 1, maximum: 5}
+        comment: {type: string}
+        imageUrl: {type: string}
+        createdAt: {type: string, format: date-time}
+    ReviewRequest:
+      type: object
+      required: [rating]
+      properties:
+        rating: {type: integer, minimum: 1, maximum: 5}
+        comment: {type: string}
+        imageUrl: {type: string}
+
+    # ---- Vouchers ----
+    VoucherResponse:
+      type: object
+      properties:
+        id: {type: integer, format: int64}
+        code: {type: string}
+        discountType: {type: string, enum: [PERCENT, AMOUNT]}
+        discountValue: {type: number}
+        minOrderAmount: {type: number}
+        startDate: {type: string, format: date-time}
+        endDate: {type: string, format: date-time}
+        isActive: {type: boolean}
+    VoucherRequest:
+      type: object
+      required: [code, discountType, discountValue]
+      properties:
+        code: {type: string}
+        discountType: {type: string, enum: [PERCENT, AMOUNT]}
+        discountValue: {type: number}
+        minOrderAmount: {type: number}
+        startDate: {type: string, format: date-time}
+        endDate: {type: string, format: date-time}
+        usageLimit: {type: integer}
+
+    # ---- Dashboard ----
+    DashboardStatsResponse:
+      type: object
+      properties:
+        totalRevenue: {type: number}
+        totalOrders: {type: integer}
+        newOrders: {type: integer}
+        newUsers: {type: integer}
+
 paths:
   # ---- Health ----
   /api/v1/health:
@@ -881,6 +977,8 @@ paths:
   # ---- Auth ----
   /api/v1/auth/register:
     post:
+      tags:
+        - "CLIENT - Authentication"
       security: []
       summary: Register a new user (customer)
       requestBody:
@@ -904,6 +1002,8 @@ paths:
                 $ref: '#/components/schemas/Problem'
   /api/v1/auth/login:
     post:
+      tags:
+        - "CLIENT - Authentication"
       security: []
       summary: Login and get JWT token
       requestBody:
@@ -922,6 +1022,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/auth/forgot-password:
     post:
+      tags:
+        - "CLIENT - Authentication"
       security: []
       summary: Request password reset token
       requestBody:
@@ -934,6 +1036,8 @@ paths:
 
   /api/v1/auth/reset-password:
     post:
+      tags:
+        - "CLIENT - Authentication"
       security: []
       summary: Reset password using token
       requestBody:
@@ -946,6 +1050,8 @@ paths:
 
   /api/v1/auth/change-password:
     post:
+      tags:
+        - "CLIENT - Authentication"
       summary: Change password (authenticated)
       requestBody:
         required: true
@@ -958,6 +1064,8 @@ paths:
 
   /api/v1/auth/logout:
     post:
+      tags:
+        - "CLIENT - Authentication"
       summary: Logout (blacklist current JWT)
       responses:
         '204': { description: No Content }
@@ -966,6 +1074,8 @@ paths:
   # ---- Users (me) ----
   /api/v1/users/me:
     get:
+      tags:
+        - "CLIENT - Profile & Addresses"
       summary: Get current user profile
       responses:
         '200':
@@ -976,6 +1086,8 @@ paths:
                 $ref: '#/components/schemas/UserResponse'
         '401': { $ref: '#/components/responses/Unauthorized' }
     put:
+      tags:
+        - "CLIENT - Profile & Addresses"
       summary: Update current user profile
       requestBody:
         required: true
@@ -1001,6 +1113,8 @@ paths:
   # ---- Addresses (me) ----
   /api/v1/users/me/addresses:
     get:
+      tags:
+        - "CLIENT - Profile & Addresses"
       summary: List my addresses
       responses:
         '200':
@@ -1013,6 +1127,8 @@ paths:
                   $ref: '#/components/schemas/AddressResponse'
         '401': { $ref: '#/components/responses/Unauthorized' }
     post:
+      tags:
+        - "CLIENT - Profile & Addresses"
       summary: Create address
       requestBody:
         required: true
@@ -1036,6 +1152,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/users/me/addresses/{id}:
     put:
+      tags:
+        - "CLIENT - Profile & Addresses"
       summary: Update address
       parameters:
         - in: path
@@ -1066,6 +1184,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
+      tags:
+        - "CLIENT - Profile & Addresses"
       summary: Delete address
       parameters:
         - in: path
@@ -1081,6 +1201,8 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/users/me/addresses/{id}/default:
     post:
+      tags:
+        - "CLIENT - Profile & Addresses"
       summary: Set default address
       parameters:
         - in: path
@@ -1102,6 +1224,8 @@ paths:
   # ---- Cart (me) ----
   /api/v1/users/me/cart:
     get:
+      tags:
+        - "CLIENT - Cart"
       summary: Get my cart
       responses:
         '200':
@@ -1113,6 +1237,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/users/me/cart/items:
     post:
+      tags:
+        - "CLIENT - Cart"
       summary: Add item to cart
       requestBody:
         required: true
@@ -1136,6 +1262,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/users/me/cart/items/{itemId}:
     put:
+      tags:
+        - "CLIENT - Cart"
       summary: Update cart item quantity
       parameters:
         - in: path
@@ -1165,6 +1293,8 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '401': { $ref: '#/components/responses/Unauthorized' }
     delete:
+      tags:
+        - "CLIENT - Cart"
       summary: Remove item from cart
       parameters:
         - in: path
@@ -1186,6 +1316,8 @@ paths:
   # ---- Orders (me) ----
   /api/v1/users/me/orders/checkout:
     post:
+      tags:
+        - "CLIENT - Orders"
       summary: Checkout current cart -> create order
       requestBody:
         required: true
@@ -1209,6 +1341,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/users/me/orders:
     get:
+      tags:
+        - "CLIENT - Orders"
       summary: List my orders
       parameters:
         - $ref: '#/components/parameters/PageParam'
@@ -1223,6 +1357,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/users/me/orders/{orderId}:
     get:
+      tags:
+        - "CLIENT - Orders"
       summary: Get my order detail
       parameters:
         - in: path
@@ -1244,11 +1380,25 @@ paths:
   # ---- Products (public) ----
   /api/v1/products:
     get:
+      tags:
+        - "CLIENT - Products & Catalog"
       security: []
       summary: List products (public)
       parameters:
         - $ref: '#/components/parameters/ProductCategoryParam'
         - $ref: '#/components/parameters/ProductKeywordParam'
+        - in: query
+          name: minPrice
+          schema:
+            type: number
+            format: double
+          description: Minimum price filter
+        - in: query
+          name: maxPrice
+          schema:
+            type: number
+            format: double
+          description: Maximum price filter
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/SizeParam'
         - $ref: '#/components/parameters/ProductSortParam'
@@ -1261,6 +1411,8 @@ paths:
                 $ref: '#/components/schemas/Page_ProductListItemResponse'
   /api/v1/products/slug/{slug}:
     get:
+      tags:
+        - "CLIENT - Products & Catalog"
       security: []
       summary: Get product by slug (public)
       parameters:
@@ -1279,6 +1431,8 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/products/{id}:
     get:
+      tags:
+        - "CLIENT - Products & Catalog"
       security: []
       summary: Get product by id (public)
       parameters:
@@ -1300,6 +1454,8 @@ paths:
   # ---- Categories (public) ----
   /api/v1/categories:
     get:
+      tags:
+        - "CLIENT - Products & Catalog"
       security: []
       summary: List active categories (public)
       responses:
@@ -1315,6 +1471,8 @@ paths:
   # ---- Admin: Products ----
   /api/v1/admin/products:
     post:
+      tags:
+        - "ADMIN - Product Management"
       summary: Create product (ADMIN)
       requestBody:
         required: true
@@ -1332,6 +1490,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     get:
+      tags:
+        - "ADMIN - Product Management"
       summary: List products (ADMIN)
       parameters:
         - $ref: '#/components/parameters/PageParam'
@@ -1347,6 +1507,8 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/products/{id}:
     get:
+      tags:
+        - "ADMIN - Product Management"
       summary: Get product detail (ADMIN)
       parameters:
         - in: path
@@ -1366,6 +1528,8 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     put:
+      tags:
+        - "ADMIN - Product Management"
       summary: Update product (ADMIN)
       parameters:
         - in: path
@@ -1391,6 +1555,8 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
+      tags:
+        - "ADMIN - Product Management"
       summary: Delete product (ADMIN)
       parameters:
         - in: path
@@ -1409,6 +1575,8 @@ paths:
   # ---- Admin: Orders ----
   /api/v1/admin/orders:
     get:
+      tags:
+        - "ADMIN - Order Management"
       summary: List orders (ADMIN)
       parameters:
         - $ref: '#/components/parameters/PageParam'
@@ -1425,6 +1593,8 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/orders/{orderId}:
     get:
+      tags:
+        - "ADMIN - Order Management"
       summary: Order detail (ADMIN)
       parameters:
         - in: path
@@ -1445,6 +1615,8 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/admin/orders/{orderId}/status:
     patch:
+      tags:
+        - "ADMIN - Order Management"
       summary: Update order status (ADMIN)
       parameters:
         - in: path
@@ -1479,6 +1651,8 @@ paths:
   # ---- Admin: Users ----
   /api/v1/admin/users:
     get:
+      tags:
+        - "ADMIN - User Management"
       summary: List users (ADMIN)
       parameters:
         - in: query
@@ -1499,6 +1673,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
+      tags:
+        - "ADMIN - User Management"
       summary: Create user (ADMIN)
       requestBody:
         required: true
@@ -1515,6 +1691,8 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/users/{userId}:
     get:
+      tags:
+        - "ADMIN - User Management"
       summary: User detail (ADMIN)
       parameters:
         - in: path
@@ -1535,6 +1713,8 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/admin/users/{userId}/status:
     patch:
+      tags:
+        - "ADMIN - User Management"
       summary: Update user status (ADMIN)
       parameters:
         - in: path
@@ -1571,6 +1751,8 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/admin/users/{userId}/roles:
     patch:
+      tags:
+        - "ADMIN - User Management"
       summary: Replace user roles (ADMIN)
       parameters:
         - in: path
@@ -1594,6 +1776,8 @@ paths:
 
   /api/v1/admin/users/{userId}/password:
     patch:
+      tags:
+        - "ADMIN - User Management"
       summary: Reset user password (ADMIN)
       parameters:
         - in: path
@@ -1610,3 +1794,365 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Wishlist (me) ----
+  /api/v1/users/me/wishlist:
+    get:
+      tags:
+        - "CLIENT - Wishlist"
+      summary: List wishlist items
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WishlistResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/users/me/wishlist/{productId}:
+    post:
+      tags:
+        - "CLIENT - Wishlist"
+      summary: Add product to wishlist
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WishlistResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags:
+        - "CLIENT - Wishlist"
+      summary: Remove product from wishlist
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204': { description: No Content }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---- Reviews ----
+  /api/v1/products/{productId}/reviews:
+    get:
+      tags:
+        - "CLIENT - Reviews"
+      security: []
+      summary: List reviews for product
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ReviewResponse' }
+    post:
+      tags:
+        - "CLIENT - Reviews"
+      summary: Add review (User)
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewRequest' }
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/products/reviews/{reviewId}/me:
+    delete:
+      tags:
+        - "CLIENT - Reviews"
+      summary: Delete my review (User)
+      parameters:
+        - in: path
+          name: reviewId
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204': { description: No Content }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/reviews/{reviewId}:
+    delete:
+      tags:
+        - "ADMIN - Review Moderation"
+      summary: Delete review (ADMIN)
+      parameters:
+        - in: path
+          name: reviewId
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204': { description: No Content }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---- File Upload ----
+  /api/v1/files/upload:
+    post:
+      tags:
+        - "ADMIN - File Management"
+      summary: Upload file (ADMIN)
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fileName: { type: string }
+                  fileUrl: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---- Vouchers ----
+  /api/v1/admin/vouchers:
+    post:
+      tags:
+        - "ADMIN - Voucher Management"
+      summary: Create voucher (ADMIN)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoucherRequest' }
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoucherResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/vouchers/validate:
+    get:
+      tags:
+        - "CLIENT - Vouchers"
+      summary: Validate voucher code
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema: { type: string }
+        - in: query
+          name: orderAmount
+          required: true
+          schema: { type: number, format: double }
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoucherValidationResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Dashboard (Admin) ----
+  /api/v1/admin/dashboard/stats:
+    get:
+      tags:
+        - "ADMIN - Dashboard"
+      summary: Get dashboard stats (ADMIN)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardStatsResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---- Cancel Order (User) ----
+  /api/v1/users/me/orders/{orderId}/cancel:
+    put:
+      tags:
+        - "CLIENT - Orders"
+      summary: Cancel order (User - only PENDING status)
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Order canceled successfully
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+        '400':
+          description: Cannot cancel order (not PENDING status)
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+# ========== NEW SCHEMAS ==========
+
+    DashboardStatsResponse:
+      type: object
+      properties:
+        totalRevenue:
+          type: number
+          format: double
+        todayRevenue:
+          type: number
+          format: double
+        monthRevenue:
+          type: number
+          format: double
+        totalOrders:
+          type: integer
+          format: int64
+        pendingOrders:
+          type: integer
+          format: int64
+        shippingOrders:
+          type: integer
+          format: int64
+        completedOrders:
+          type: integer
+          format: int64
+        canceledOrders:
+          type: integer
+          format: int64
+        totalCustomers:
+          type: integer
+          format: int64
+        newCustomersThisMonth:
+          type: integer
+          format: int64
+        totalProducts:
+          type: integer
+          format: int64
+        lowStockProducts:
+          type: integer
+          format: int64
+        topSellingProducts:
+          type: array
+          items:
+            $ref: '#/components/schemas/TopProductDto'
+
+    TopProductDto:
+      type: object
+      properties:
+        productId:
+          type: integer
+          format: int64
+        productName:
+          type: string
+        totalSold:
+          type: integer
+          format: int64
+        revenue:
+          type: number
+          format: double
+
+    VoucherValidationResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        message:
+          type: string
+        discountAmount:
+          type: number
+          format: double
+        voucher:
+          $ref: '#/components/schemas/VoucherResponse'
+
+    VoucherRequest:
+      type: object
+      required:
+        - code
+        - discountType
+        - discountValue
+      properties:
+        code:
+          type: string
+        discountType:
+          type: string
+          enum: [PERCENT, AMOUNT]
+        discountValue:
+          type: number
+          format: double
+        minOrderAmount:
+          type: number
+          format: double
+        maxDiscountAmount:
+          type: number
+          format: double
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        usageLimit:
+          type: integer
+
+    VoucherResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        code:
+          type: string
+        discountType:
+          type: string
+        discountValue:
+          type: number
+          format: double
+        minOrderAmount:
+          type: number
+          format: double
+        maxDiscountAmount:
+          type: number
+          format: double
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        usageLimit:
+          type: integer
+        usedCount:
+          type: integer
+        isActive:
+          type: boolean

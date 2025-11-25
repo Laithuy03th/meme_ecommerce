@@ -30,8 +30,9 @@ public class Order {
     private Address address;
 
     // PENDING / PAID / SHIPPED / COMPLETED / CANCELED
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String status;
+    private com.example.MyWeb.model.enums.OrderStatus status;
 
     @Column(name = "total_amount", nullable = false)
     private Double totalAmount;
@@ -39,14 +40,22 @@ public class Order {
     @Column(name = "shipping_fee", nullable = false)
     private Double shippingFee;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "payment_method")
-    private String paymentMethod; // COD / VNPAY / MOMO...
+    private com.example.MyWeb.model.enums.PaymentMethod paymentMethod; // COD / VNPAY / MOMO...
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "payment_status")
-    private String paymentStatus; // UNPAID / PAID / FAILED
+    private com.example.MyWeb.model.enums.PaymentStatus paymentStatus; // UNPAID / PAID / FAILED
 
     @Column(columnDefinition = "TEXT")
     private String note;
+
+    @Column(name = "voucher_code")
+    private String voucherCode;
+
+    @Column(name = "discount_amount")
+    private Double discountAmount;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

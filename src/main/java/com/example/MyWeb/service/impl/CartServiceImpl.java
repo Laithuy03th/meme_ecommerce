@@ -14,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 
+import com.example.MyWeb.model.enums.CartStatus;
+
 @Service
 @RequiredArgsConstructor
 public class CartServiceImpl implements CartService {
@@ -74,14 +76,14 @@ public class CartServiceImpl implements CartService {
     }
 
     private Cart getOrCreateActiveCart(Long userId) {
-        return cartRepository.findByUser_IdAndStatus(userId, "ACTIVE")
+        return cartRepository.findByUser_IdAndStatus(userId, CartStatus.ACTIVE)
                 .orElseGet(() -> {
                     User user = userRepository.findById(userId)
                             .orElseThrow(() -> new RuntimeException("User not found"));
 
                     Cart newCart = Cart.builder()
                             .user(user)
-                            .status("ACTIVE")
+                            .status(CartStatus.ACTIVE)
                             .createdAt(LocalDateTime.now())
                             .updatedAt(LocalDateTime.now())
                             .items(new ArrayList<>())
@@ -101,7 +103,7 @@ public class CartServiceImpl implements CartService {
     @Override
     @Transactional(readOnly = true)
     public CartResponse getCurrentCart(Long userId) {
-        Cart cart = cartRepository.findByUser_IdAndStatus(userId, "ACTIVE")
+        Cart cart = cartRepository.findByUser_IdAndStatus(userId, CartStatus.ACTIVE)
                 .orElse(null);
         if (cart == null) {
             return CartResponse.builder()
@@ -152,12 +154,37 @@ public class CartServiceImpl implements CartService {
 
         if (existing != null) {
             int newQty = existing.getQuantity() + request.getQuantity();
+
+            // Check stock for existing item
+            if (variant != null) {
+                if (variant.getStock() != null && newQty > variant.getStock()) {
+                    throw new RuntimeException("Not enough stock for variant. Available: " + variant.getStock());
+                }
+            } else {
+                if (product.getStockQuantity() != null && newQty > product.getStockQuantity()) {
+                    throw new RuntimeException(
+                            "Not enough stock for product. Available: " + product.getStockQuantity());
+                }
+            }
+
             existing.setQuantity(newQty);
             existing.setUnitPrice(unitPrice);
             existing.setTotalPrice(unitPrice * newQty);
             existing.setUpdatedAt(now);
             cartItemRepository.save(existing);
         } else {
+            // Check stock for new item
+            if (variant != null) {
+                if (variant.getStock() != null && request.getQuantity() > variant.getStock()) {
+                    throw new RuntimeException("Not enough stock for variant. Available: " + variant.getStock());
+                }
+            } else {
+                if (product.getStockQuantity() != null && request.getQuantity() > product.getStockQuantity()) {
+                    throw new RuntimeException(
+                            "Not enough stock for product. Available: " + product.getStockQuantity());
+                }
+            }
+
             CartItem newItem = CartItem.builder()
                     .cart(cart)
                     .product(product)
@@ -190,6 +217,21 @@ public class CartServiceImpl implements CartService {
             // nếu muốn, có thể xoá luôn item
             cartItemRepository.delete(item);
         } else {
+            // Check stock
+            ProductVariant variant = item.getVariant();
+            Product product = item.getProduct();
+
+            if (variant != null) {
+                if (variant.getStock() != null && newQty > variant.getStock()) {
+                    throw new RuntimeException("Not enough stock for variant. Available: " + variant.getStock());
+                }
+            } else {
+                if (product.getStockQuantity() != null && newQty > product.getStockQuantity()) {
+                    throw new RuntimeException(
+                            "Not enough stock for product. Available: " + product.getStockQuantity());
+                }
+            }
+
             double unitPrice = item.getUnitPrice();
             item.setQuantity(newQty);
             item.setTotalPrice(unitPrice * newQty);

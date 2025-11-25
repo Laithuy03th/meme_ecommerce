@@ -25,8 +25,9 @@ public class Cart {
     private User user;
 
     // ACTIVE / CHECKED_OUT / ABANDONED
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private String status = "ACTIVE";
+    private com.example.MyWeb.model.enums.CartStatus status = com.example.MyWeb.model.enums.CartStatus.ACTIVE;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

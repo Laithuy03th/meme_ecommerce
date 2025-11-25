@@ -16,4 +16,6 @@ public class CheckoutRequest {
     private String paymentMethod; // COD, VNPAY, MOMO...
 
     private String note;
+
+    private String voucherCode; // Optional voucher code
 }

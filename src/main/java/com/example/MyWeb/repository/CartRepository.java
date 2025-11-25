@@ -7,5 +7,5 @@ import java.util.Optional;
 
 public interface CartRepository extends JpaRepository<Cart, Long> {
 
-    Optional<Cart> findByUser_IdAndStatus(Long userId, String status);
+    Optional<Cart> findByUser_IdAndStatus(Long userId, com.example.MyWeb.model.enums.CartStatus status);
 }

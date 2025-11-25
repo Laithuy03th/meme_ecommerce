@@ -38,6 +38,9 @@ public class Product {
     @Column(name = "base_price", nullable = false)
     private Double basePrice;
 
+    @Column(name = "stock_quantity")
+    private Integer stockQuantity; // Dành cho sản phẩm đơn giản hoặc tổng tồn kho
+
     @Column(name = "thumbnail_url")
     private String thumbnailUrl;
 

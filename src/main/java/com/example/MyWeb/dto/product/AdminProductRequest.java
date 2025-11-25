@@ -24,8 +24,12 @@ public class AdminProductRequest {
     private Long categoryId;
 
     @NotNull
+    @NotNull
     @Min(0)
     private Double basePrice;
+
+    @Min(0)
+    private Integer stockQuantity;
 
     private String thumbnailUrl;
 

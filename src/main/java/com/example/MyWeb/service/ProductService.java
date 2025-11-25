@@ -9,6 +9,8 @@ public interface ProductService {
     Page<ProductListItemResponse> getProducts(
             String keyword,
             String categorySlug,
+            Double minPrice,
+            Double maxPrice,
             int page,
             int size,
             String sortBy // newest, oldest, priceAsc, priceDesc

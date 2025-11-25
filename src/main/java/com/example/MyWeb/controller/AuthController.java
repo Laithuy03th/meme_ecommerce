@@ -51,9 +51,9 @@ public class AuthController {
     @PostMapping("/change-password")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest req) {
-        Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getDetails();
-        // nếu bạn không set details là userId trong filter, có thể lấy từ claims:
-        // Long userId = jwtService.extractUserIdFromAuth();
+        com.example.MyWeb.security.CustomUserDetails userDetails = (com.example.MyWeb.security.CustomUserDetails) SecurityContextHolder
+                .getContext().getAuthentication().getPrincipal();
+        Long userId = userDetails.getId();
         authService.changePassword(userId, req);
         return ResponseEntity.noContent().build();
     }

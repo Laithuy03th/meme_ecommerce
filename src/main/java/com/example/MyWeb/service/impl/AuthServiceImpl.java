@@ -25,6 +25,7 @@ import com.example.MyWeb.repository.RoleRepository;
 import com.example.MyWeb.repository.UserRepository;
 
 import com.example.MyWeb.service.AuthService;
+import com.example.MyWeb.service.EmailService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -35,6 +36,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import com.example.MyWeb.model.enums.UserStatus;
 
 @Service
 @RequiredArgsConstructor
@@ -48,6 +51,7 @@ public class AuthServiceImpl implements AuthService {
         private final JwtService jwtService;
         private final PasswordResetTokenRepository passwordResetTokenRepository;
         private final JwtBlacklistService jwtBlacklistService;
+        private final EmailService emailService; // Inject EmailService
 
         @Override
         public UserResponse register(RegisterRequest request) {
@@ -65,7 +69,7 @@ public class AuthServiceImpl implements AuthService {
                 User user = User.builder()
                                 .email(request.getEmail())
                                 .passwordHash(passwordEncoder.encode(request.getPassword()))
-                                .status("ACTIVE")
+                                .status(UserStatus.ACTIVE)
                                 .createdAt(LocalDateTime.now())
                                 .updatedAt(LocalDateTime.now())
                                 .roles(Set.of(customerRole))
@@ -134,7 +138,7 @@ public class AuthServiceImpl implements AuthService {
                                 .build();
         }
 
-        // Forgot password: sinh token reset, lưu DB, (demo) trả về qua log/console
+        // Forgot password: sinh token reset, lưu DB, gửi email
         @Override
         public void forgotPassword(ForgotPasswordRequest req) {
                 User user = userRepository.findByEmail(req.getEmail())
@@ -149,8 +153,14 @@ public class AuthServiceImpl implements AuthService {
                                 .build();
                 passwordResetTokenRepository.save(prt);
 
-                // TODO: gửi email chứa link reset, ví dụ:
-                // https://your-frontend/reset-password?token=...
+                // Gửi email
+                String resetLink = "http://localhost:3000/reset-password?token=" + token;
+                String subject = "Reset Password Request";
+                String content = "Click the link below to reset your password:\n" + resetLink
+                                + "\n\nThis link expires in 30 minutes.";
+
+                emailService.sendSimpleMessage(user.getEmail(), subject, content);
+
                 System.out.println("RESET TOKEN for " + user.getEmail() + ": " + token);
         }
 

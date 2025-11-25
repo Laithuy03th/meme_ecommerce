@@ -2,6 +2,7 @@ package com.example.MyWeb.config;
 
 import com.example.MyWeb.model.Role;
 import com.example.MyWeb.model.User;
+import com.example.MyWeb.model.enums.UserStatus;
 import com.example.MyWeb.repository.RoleRepository;
 import com.example.MyWeb.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +49,7 @@ public class DataInitializer {
                 User admin = User.builder()
                         .email(adminEmail)
                         .passwordHash(passwordEncoder.encode("Admin@123"))
-                        .status("ACTIVE")
+                        .status(UserStatus.ACTIVE)
                         .createdAt(LocalDateTime.now())
                         .updatedAt(LocalDateTime.now())
                         .roles(Set.of(adminRole))

@@ -25,8 +25,10 @@ public class User {
     @Column(nullable = false, length = 255)
     private String passwordHash;
 
-    @Column(nullable = false, length = 20)
-    private String status; // = "ACTIVE";
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @Builder.Default
+    private com.example.MyWeb.model.enums.UserStatus status = com.example.MyWeb.model.enums.UserStatus.ACTIVE;
 
     @Column(nullable = false)
     private LocalDateTime createdAt;
@@ -49,7 +51,7 @@ public class User {
             updatedAt = now;
         }
         if (status == null) {
-            status = "ACTIVE";
+            status = com.example.MyWeb.model.enums.UserStatus.ACTIVE;
         }
     }
 

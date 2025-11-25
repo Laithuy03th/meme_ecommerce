@@ -16,6 +16,10 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.example.MyWeb.model.enums.OrderStatus;
+import com.example.MyWeb.model.enums.PaymentMethod;
+import com.example.MyWeb.model.enums.PaymentStatus;
+
 @Service
 @RequiredArgsConstructor
 public class AdminOrderServiceImpl implements AdminOrderService {
@@ -36,9 +40,9 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 .shippingFullName(shippingFullName)
                 .totalAmount(o.getTotalAmount())
                 .shippingFee(o.getShippingFee())
-                .status(o.getStatus())
-                .paymentMethod(o.getPaymentMethod())
-                .paymentStatus(o.getPaymentStatus())
+                .status(o.getStatus().name())
+                .paymentMethod(o.getPaymentMethod().name())
+                .paymentStatus(o.getPaymentStatus().name())
                 .createdAt(o.getCreatedAt())
                 .build();
     }
@@ -82,9 +86,9 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
         return AdminOrderDetailResponse.builder()
                 .id(o.getId())
-                .status(o.getStatus())
-                .paymentMethod(o.getPaymentMethod())
-                .paymentStatus(o.getPaymentStatus())
+                .status(o.getStatus().name())
+                .paymentMethod(o.getPaymentMethod().name())
+                .paymentStatus(o.getPaymentStatus().name())
                 .totalAmount(o.getTotalAmount())
                 .shippingFee(o.getShippingFee())
                 .note(o.getNote())
@@ -109,7 +113,14 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
         Page<Order> orderPage;
         if (status != null && !status.isBlank()) {
-            orderPage = orderRepository.findByStatusOrderByCreatedAtDesc(status, pageable);
+            try {
+                OrderStatus os = OrderStatus.valueOf(status.toUpperCase());
+                orderPage = orderRepository.findByStatusOrderByCreatedAtDesc(os, pageable);
+            } catch (IllegalArgumentException e) {
+                // Nếu status không hợp lệ, có thể trả về empty hoặc throw error.
+                // Ở đây mình chọn trả về empty page cho an toàn
+                orderPage = Page.empty(pageable);
+            }
         } else {
             orderPage = orderRepository.findAllByOrderByCreatedAtDesc(pageable);
         }
@@ -133,14 +144,14 @@ public class AdminOrderServiceImpl implements AdminOrderService {
             throw new RuntimeException("Status is required");
         }
 
-        String normalized = newStatus.trim().toUpperCase();
-        // Ví dụ cho phép các trạng thái này
-        List<String> allowed = List.of("PENDING", "PAID", "SHIPPED", "COMPLETED", "CANCELED");
-        if (!allowed.contains(normalized)) {
-            throw new RuntimeException("Invalid order status");
+        OrderStatus os;
+        try {
+            os = OrderStatus.valueOf(newStatus.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Invalid order status: " + newStatus);
         }
 
-        o.setStatus(normalized);
+        o.setStatus(os);
         o.setUpdatedAt(LocalDateTime.now());
 
         o = orderRepository.save(o);

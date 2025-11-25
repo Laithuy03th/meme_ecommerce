@@ -2,6 +2,7 @@ package com.example.MyWeb.security;
 
 import com.example.MyWeb.model.Role;
 import com.example.MyWeb.model.User;
+import com.example.MyWeb.model.enums.UserStatus;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -51,7 +52,7 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return !"BLOCKED".equalsIgnoreCase(user.getStatus());
+        return user.getStatus() != UserStatus.BLOCKED;
     }
 
     @Override
@@ -61,6 +62,6 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return "ACTIVE".equalsIgnoreCase(user.getStatus());
+        return user.getStatus() == UserStatus.ACTIVE;
     }
 }
