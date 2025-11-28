@@ -41,8 +41,14 @@ public class Address {
     @Column(length = 100)
     private String province;
 
+    @Column(length = 20)
+    private String zipCode;
+
     @Column(length = 100)
     private String country = "Vietnam";
+
+    @Column(length = 50)
+    private String label; // Home, Work, etc.
 
     @Column(nullable = false)
     private boolean isDefault = false;

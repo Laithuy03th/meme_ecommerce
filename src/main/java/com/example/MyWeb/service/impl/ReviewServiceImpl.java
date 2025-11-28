@@ -86,7 +86,22 @@ public class ReviewServiceImpl implements ReviewService {
                 .rating(review.getRating())
                 .comment(review.getComment())
                 .imageUrl(review.getImageUrl())
+                .adminReply(review.getAdminReply())
+                .adminRepliedAt(review.getAdminRepliedAt())
                 .createdAt(review.getCreatedAt())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public ReviewResponse replyToReview(Long reviewId, String reply) {
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new ResourceNotFoundException("Review not found"));
+
+        review.setAdminReply(reply);
+        review.setAdminRepliedAt(java.time.LocalDateTime.now());
+
+        review = reviewRepository.save(review);
+        return toDto(review);
     }
 }

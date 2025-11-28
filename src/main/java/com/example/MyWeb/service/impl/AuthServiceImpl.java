@@ -27,6 +27,7 @@ import com.example.MyWeb.repository.UserRepository;
 import com.example.MyWeb.service.AuthService;
 import com.example.MyWeb.service.EmailService;
 
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.security.authentication.AuthenticationManager;
@@ -125,15 +126,18 @@ public class AuthServiceImpl implements AuthService {
                 CustomerProfile profile = customerProfileRepository.findByUser(user)
                                 .orElse(null);
 
-                // 3. Tạo JWT
-                String token = jwtService.generateToken(
+                // 3. Tạo JWT (Access + Refresh)
+                String accessToken = jwtService.generateToken(
                                 user.getEmail(),
                                 Map.of("userId", user.getId()));
+
+                String refreshToken = jwtService.generateRefreshToken(user.getEmail());
 
                 UserResponse userResponse = toUserResponse(user, profile);
 
                 return LoginResponse.builder()
-                                .accessToken(token)
+                                .accessToken(accessToken)
+                                .refreshToken(refreshToken)
                                 .user(userResponse)
                                 .build();
         }
@@ -200,5 +204,41 @@ public class AuthServiceImpl implements AuthService {
         public void logout(String token) {
                 long exp = jwtService.getExpirationEpochSeconds(token); // implement hàm này trong JwtService
                 jwtBlacklistService.blacklist(token, exp);
+        }
+
+        // Refresh Token: tạo access token mới từ refresh token
+        @Override
+        @Transactional
+        public LoginResponse refreshToken(String refreshToken) {
+                // 1. Validate refresh token
+                if (!jwtService.validateToken(refreshToken)) {
+                        throw new RuntimeException("Invalid or expired refresh token");
+                }
+
+                // 2. Extract email from refresh token
+                String email = jwtService.getSubjectFromToken(refreshToken);
+
+                // 3. Lấy user từ DB
+                User user = userRepository.findByEmail(email)
+                                .orElseThrow(() -> new RuntimeException("User not found"));
+
+                CustomerProfile profile = customerProfileRepository.findByUser(user)
+                                .orElse(null);
+
+                // 4. Tạo access token mới
+                String newAccessToken = jwtService.generateToken(
+                                user.getEmail(),
+                                Map.of("userId", user.getId()));
+
+                // 5. Generate new refresh token (rotating refresh token strategy)
+                String newRefreshToken = jwtService.generateRefreshToken(user.getEmail());
+
+                UserResponse userResponse = toUserResponse(user, profile);
+
+                return LoginResponse.builder()
+                                .accessToken(newAccessToken)
+                                .refreshToken(newRefreshToken)
+                                .user(userResponse)
+                                .build();
         }
 }

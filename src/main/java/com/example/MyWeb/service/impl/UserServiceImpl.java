@@ -21,6 +21,7 @@ public class UserServiceImpl implements UserService {
 
         private final UserRepository userRepository;
         private final CustomerProfileRepository customerProfileRepository;
+        private final com.example.MyWeb.repository.OrderRepository orderRepository;
 
         @Override
         public UserResponse getCurrentUser(Long userId) {
@@ -69,12 +70,29 @@ public class UserServiceImpl implements UserService {
                                 .map(Role::getCode)
                                 .collect(Collectors.toSet());
 
+                Long totalOrders = orderRepository.countByUser_Id(user.getId());
+                Double totalSpent = orderRepository.sumTotalSpentByUserId(user.getId());
+                if (totalSpent == null)
+                        totalSpent = 0.0;
+
+                String membership = "Bronze";
+                if (totalSpent > 1000)
+                        membership = "Gold";
+                else if (totalSpent > 500)
+                        membership = "Silver";
+
                 return UserResponse.builder()
                                 .id(user.getId())
                                 .email(user.getEmail())
                                 .fullName(profile != null ? profile.getFullName() : null)
                                 .phone(profile != null ? profile.getPhone() : null)
                                 .roles(roleCodes)
+                                .avatarUrl(profile != null ? profile.getAvatarUrl() : null)
+                                .memberSince(String.valueOf(user.getCreatedAt().getYear()))
+                                .totalOrders(totalOrders.intValue())
+                                .totalSpent(totalSpent)
+                                .membershipLevel(membership)
+                                .verified(true)
                                 .build();
         }
 }

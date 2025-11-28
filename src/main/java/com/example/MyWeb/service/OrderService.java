@@ -8,9 +8,11 @@ public interface OrderService {
 
     OrderResponse checkout(Long userId, CheckoutRequest request);
 
-    Page<OrderResponse> getMyOrders(Long userId, int page, int size);
+    Page<com.example.MyWeb.dto.order.OrderListResponse> getMyOrders(Long userId, int page, int size);
 
-    OrderResponse getMyOrderDetail(Long userId, Long orderId);
+    com.example.MyWeb.dto.order.OrderDetailResponse getMyOrderDetail(Long userId, Long orderId);
 
     OrderResponse cancelOrder(Long userId, Long orderId);
+
+    OrderResponse requestReturn(Long userId, Long orderId, String reason);
 }

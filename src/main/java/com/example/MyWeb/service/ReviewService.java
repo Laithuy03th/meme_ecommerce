@@ -14,4 +14,6 @@ public interface ReviewService {
     void deleteReview(Long reviewId);
 
     void deleteReviewByUser(Long userId, Long reviewId);
+
+    ReviewResponse replyToReview(Long reviewId, String reply);
 }

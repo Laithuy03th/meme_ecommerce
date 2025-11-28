@@ -11,11 +11,24 @@ import org.springframework.data.repository.query.Param;
 
 public interface ProductRepository extends JpaRepository<Product, Long> {
 
-        @Query("SELECT p FROM Product p WHERE p.status = 'ACTIVE' " +
-                        "AND (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-                        "AND (:categorySlug IS NULL OR p.category.slug = :categorySlug) " +
-                        "AND (:minPrice IS NULL OR p.basePrice >= :minPrice) " +
-                        "AND (:maxPrice IS NULL OR p.basePrice <= :maxPrice)")
+        @Query(value = "SELECT p.* FROM products p " +
+                        "JOIN categories c ON c.id = p.category_id " +
+                        "WHERE p.status = 'ACTIVE' " +
+                        "AND (CAST(:keyword AS VARCHAR) IS NULL OR LOWER(p.name) LIKE '%' || LOWER(CAST(:keyword AS VARCHAR)) || '%') "
+                        +
+                        "AND (CAST(:categorySlug AS VARCHAR) IS NULL OR c.slug = CAST(:categorySlug AS VARCHAR)) " +
+                        "AND (:minPrice IS NULL OR p.base_price >= CAST(:minPrice AS DOUBLE PRECISION)) " +
+                        "AND (:maxPrice IS NULL OR p.base_price <= CAST(:maxPrice AS DOUBLE PRECISION))", countQuery = "SELECT COUNT(p.*) FROM products p "
+                                        +
+                                        "JOIN categories c ON c.id = p.category_id " +
+                                        "WHERE p.status = 'ACTIVE' " +
+                                        "AND (CAST(:keyword AS VARCHAR) IS NULL OR LOWER(p.name) LIKE '%' || LOWER(CAST(:keyword AS VARCHAR)) || '%') "
+                                        +
+                                        "AND (CAST(:categorySlug AS VARCHAR) IS NULL OR c.slug = CAST(:categorySlug AS VARCHAR)) "
+                                        +
+                                        "AND (:minPrice IS NULL OR p.base_price >= CAST(:minPrice AS DOUBLE PRECISION)) "
+                                        +
+                                        "AND (:maxPrice IS NULL OR p.base_price <= CAST(:maxPrice AS DOUBLE PRECISION))", nativeQuery = true)
         Page<Product> searchProducts(
                         @Param("keyword") String keyword,
                         @Param("categorySlug") String categorySlug,
@@ -28,4 +41,8 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
         Optional<Product> findBySlugAndStatus(String slug, String status);
 
         Optional<Product> findByIdAndStatus(Long id, String status);
+
+        long countByStockQuantityLessThanEqual(Integer threshold);
+
+        Page<Product> findByCategoryIdAndIdNotAndStatus(Long categoryId, Long id, String status, Pageable pageable);
 }

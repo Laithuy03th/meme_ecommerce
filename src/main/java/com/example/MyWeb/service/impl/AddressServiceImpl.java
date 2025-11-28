@@ -32,6 +32,8 @@ public class AddressServiceImpl implements AddressService {
                 .district(a.getDistrict())
                 .province(a.getProvince())
                 .country(a.getCountry())
+                .label(a.getLabel())
+                .zipCode(a.getZipCode())
                 .isDefault(a.isDefault())
                 .createdAt(a.getCreatedAt())
                 .build();
@@ -62,6 +64,8 @@ public class AddressServiceImpl implements AddressService {
                 .district(req.getDistrict())
                 .province(req.getProvince())
                 .country(req.getCountry() != null ? req.getCountry() : "Vietnam")
+                .label(req.getLabel())
+                .zipCode(req.getZipCode())
                 .createdAt(LocalDateTime.now())
                 .isDefault(Boolean.TRUE.equals(req.getIsDefault()))
                 .build();
@@ -89,6 +93,10 @@ public class AddressServiceImpl implements AddressService {
             a.setProvince(req.getProvince());
         if (req.getCountry() != null)
             a.setCountry(req.getCountry());
+        if (req.getLabel() != null)
+            a.setLabel(req.getLabel());
+        if (req.getZipCode() != null)
+            a.setZipCode(req.getZipCode());
 
         if (req.getIsDefault() != null && req.getIsDefault()) {
             addressRepo.clearDefaultByUserId(userId);

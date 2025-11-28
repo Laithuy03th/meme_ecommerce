@@ -14,6 +14,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.List;
+
+import com.example.MyWeb.repository.OrderItemRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -22,6 +25,7 @@ public class DashboardServiceImpl implements DashboardService {
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
+    private final OrderItemRepository orderItemRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -46,12 +50,40 @@ public class DashboardServiceImpl implements DashboardService {
 
         // Product stats
         stats.setTotalProducts(productRepository.count());
-        stats.setLowStockProducts(0L); // Placeholder - cần ProductVariant inventory logic
+        stats.setLowStockProducts(calculateLowStockProducts());
 
-        // Top selling products (placeholder - cần query phức tạp hơn)
-        stats.setTopSellingProducts(new ArrayList<>());
+        // Top selling products
+        stats.setTopSellingProducts(getTopSellingProducts());
 
         return stats;
+    }
+
+    private Long calculateLowStockProducts() {
+        int lowStockThreshold = 10; // Products/variants with stock <= 10
+
+        // Count simple products with low stock
+        long lowStockSimpleProducts = productRepository.countByStockQuantityLessThanEqual(lowStockThreshold);
+
+        // TODO: Add variant low stock count when ProductVariantRepository has the query
+        // For now, return simple products count
+        return lowStockSimpleProducts;
+    }
+
+    private List<DashboardStatsResponse.TopProductDto> getTopSellingProducts() {
+        List<Object[]> results = orderItemRepository.findTopSellingProducts();
+        List<DashboardStatsResponse.TopProductDto> topProducts = new ArrayList<>();
+
+        for (Object[] row : results) {
+            DashboardStatsResponse.TopProductDto dto = DashboardStatsResponse.TopProductDto.builder()
+                    .productId((Long) row[0])
+                    .productName((String) row[1])
+                    .totalSold((Long) row[3])
+                    .revenue((Double) row[4])
+                    .build();
+            topProducts.add(dto);
+        }
+
+        return topProducts;
     }
 
     private Double calculateTodayRevenue() {

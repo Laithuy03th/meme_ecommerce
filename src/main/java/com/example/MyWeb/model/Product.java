@@ -19,13 +19,13 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String name; // Tên sản phẩm hiển thị
 
     @Column(nullable = false, unique = true)
     private String slug; // dung-cho-url
 
-    @Column(name = "short_desc")
+    @Column(name = "short_desc", columnDefinition = "TEXT")
     private String shortDesc;
 
     @Column(name = "long_desc", columnDefinition = "TEXT")

@@ -20,6 +20,7 @@ public class CategoryServiceImpl implements CategoryService {
                 .id(c.getId())
                 .name(c.getName())
                 .slug(c.getSlug())
+                .imageUrl(c.getImageUrl())
                 .build();
     }
 

@@ -1,4 +1,3 @@
-// src/main/java/com/example/MyWeb/service/AdminProductService.java
 package com.example.MyWeb.service;
 
 import com.example.MyWeb.dto.product.AdminProductRequest;

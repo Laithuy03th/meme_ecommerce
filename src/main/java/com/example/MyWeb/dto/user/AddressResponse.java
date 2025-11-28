@@ -18,6 +18,8 @@ public class AddressResponse {
     private String district;
     private String province;
     private String country;
+    private String label;
+    private String zipCode;
     private boolean isDefault;
     private LocalDateTime createdAt;
 }

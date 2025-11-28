@@ -21,4 +21,6 @@ public interface AuthService {
 
     void logout(String token); // sẽ blacklist token
 
+    LoginResponse refreshToken(String refreshToken);
+
 }

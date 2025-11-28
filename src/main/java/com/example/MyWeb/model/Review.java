@@ -35,6 +35,12 @@ public class Review {
     @Column(name = "image_url")
     private String imageUrl;
 
+    @Column(name = "admin_reply", columnDefinition = "TEXT")
+    private String adminReply;
+
+    @Column(name = "admin_replied_at")
+    private LocalDateTime adminRepliedAt;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

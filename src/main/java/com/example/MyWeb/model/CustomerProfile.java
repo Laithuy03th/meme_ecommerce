@@ -33,4 +33,7 @@ public class CustomerProfile {
     private String gender; // MALE/FEMALE/OTHER...
 
     private LocalDate dateOfBirth;
+
+    @Column(length = 500)
+    private String avatarUrl;
 }

@@ -191,20 +191,93 @@ public class OrderServiceImpl implements OrderService {
 
         @Override
         @Transactional(readOnly = true)
-        public Page<OrderResponse> getMyOrders(Long userId, int page, int size) {
+        public Page<com.example.MyWeb.dto.order.OrderListResponse> getMyOrders(Long userId, int page, int size) {
                 Pageable pageable = PageRequest.of(page, size);
                 Page<Order> orders = orderRepository.findByUser_IdOrderByCreatedAtDesc(userId, pageable);
-                return orders.map(this::toOrderDto);
+                return orders.map(this::toListResponse);
         }
 
         @Override
         @Transactional(readOnly = true)
-        public OrderResponse getMyOrderDetail(Long userId, Long orderId) {
+        public com.example.MyWeb.dto.order.OrderDetailResponse getMyOrderDetail(Long userId, Long orderId) {
                 Order order = orderRepository.findByIdAndUser_Id(orderId, userId)
                                 .orElseThrow(() -> new RuntimeException("Order not found"));
                 // ensure items loaded
                 order.getItems().size();
-                return toOrderDto(order);
+                return toDetailResponse(order);
+        }
+
+        private com.example.MyWeb.dto.order.OrderListResponse toListResponse(Order order) {
+                String firstImage = null;
+                if (order.getItems() != null && !order.getItems().isEmpty()) {
+                        firstImage = order.getItems().get(0).getProduct().getThumbnailUrl();
+                }
+
+                return com.example.MyWeb.dto.order.OrderListResponse.builder()
+                                .id(order.getId())
+                                .orderNumber("ORD-" + order.getId())
+                                .createdAt(order.getCreatedAt())
+                                .status(order.getStatus().name())
+                                .itemCount(order.getItems() != null ? order.getItems().size() : 0)
+                                .totalAmount(order.getTotalAmount())
+                                .firstItemImageUrl(firstImage)
+                                .build();
+        }
+
+        private com.example.MyWeb.dto.order.OrderDetailResponse toDetailResponse(Order order) {
+                java.util.List<com.example.MyWeb.dto.order.OrderDetailResponse.TimelineStep> timeline = new ArrayList<>();
+                timeline.add(com.example.MyWeb.dto.order.OrderDetailResponse.TimelineStep.builder()
+                                .status("Order Placed")
+                                .timestamp(order.getCreatedAt())
+                                .completed(true)
+                                .build());
+
+                java.util.List<com.example.MyWeb.dto.order.OrderDetailResponse.OrderItemDto> items = order.getItems()
+                                .stream()
+                                .map(item -> com.example.MyWeb.dto.order.OrderDetailResponse.OrderItemDto.builder()
+                                                .id(item.getId())
+                                                .productName(item.getProductName())
+                                                .productImageUrl(item.getProduct().getThumbnailUrl())
+                                                .variantInfo(item.getVariant() != null
+                                                                ? "Color: " + item.getVariant().getColor() + ", Size: "
+                                                                                + item.getVariant().getSize()
+                                                                : "")
+                                                .quantity(item.getQuantity())
+                                                .price(item.getUnitPrice())
+                                                .build())
+                                .collect(java.util.stream.Collectors.toList());
+
+                com.example.MyWeb.dto.order.OrderDetailResponse.ShippingAddressDto addressDto = null;
+                if (order.getAddress() != null) {
+                        addressDto = com.example.MyWeb.dto.order.OrderDetailResponse.ShippingAddressDto.builder()
+                                        .fullName(order.getAddress().getFullName())
+                                        .addressLine(order.getAddress().getAddressLine1() + ", "
+                                                        + order.getAddress().getDistrict() + ", "
+                                                        + order.getAddress().getProvince())
+                                        .phone(order.getAddress().getPhone())
+                                        .build();
+                }
+
+                com.example.MyWeb.dto.order.OrderDetailResponse.PaymentMethodDto paymentDto = com.example.MyWeb.dto.order.OrderDetailResponse.PaymentMethodDto
+                                .builder()
+                                .type(order.getPaymentMethod().name())
+                                .last4("4242")
+                                .build();
+
+                return com.example.MyWeb.dto.order.OrderDetailResponse.builder()
+                                .id(order.getId())
+                                .orderNumber("ORD-" + order.getId())
+                                .createdAt(order.getCreatedAt())
+                                .status(order.getStatus().name())
+                                .timeline(timeline)
+                                .items(items)
+                                .subtotal(order.getTotalAmount() - order.getShippingFee()
+                                                + (order.getDiscountAmount() != null ? order.getDiscountAmount() : 0))
+                                .shippingFee(order.getShippingFee())
+                                .totalAmount(order.getTotalAmount())
+                                .shippingAddress(addressDto)
+                                .paymentMethod(paymentDto)
+                                .build();
         }
 
         @Override
@@ -219,6 +292,31 @@ public class OrderServiceImpl implements OrderService {
                 }
 
                 order.setStatus(OrderStatus.CANCELED);
+                order.setUpdatedAt(LocalDateTime.now());
+                orderRepository.save(order);
+
+                return toOrderDto(order);
+
+        }
+
+        @Override
+        @Transactional
+        public OrderResponse requestReturn(Long userId, Long orderId, String reason) {
+                Order order = orderRepository.findByIdAndUser_Id(orderId, userId)
+                                .orElseThrow(() -> new RuntimeException("Order not found"));
+
+                // Only allow return if order is DELIVERED
+                if (order.getStatus() != OrderStatus.DELIVERED) {
+                        throw new RuntimeException("Cannot request return for order with status: " + order.getStatus());
+                }
+
+                order.setStatus(OrderStatus.RETURN_REQUESTED);
+                // Note: We might want to append the reason to the order note or a separate
+                // field
+                // For now, appending to note
+                String currentNote = order.getNote() != null ? order.getNote() : "";
+                order.setNote(currentNote + " [Return Reason: " + reason + "]");
+
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
 

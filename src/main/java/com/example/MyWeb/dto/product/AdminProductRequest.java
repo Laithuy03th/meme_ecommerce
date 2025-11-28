@@ -24,7 +24,6 @@ public class AdminProductRequest {
     private Long categoryId;
 
     @NotNull
-    @NotNull
     @Min(0)
     private Double basePrice;
 

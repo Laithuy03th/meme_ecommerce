@@ -11,25 +11,31 @@ import java.util.Optional;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
-    Page<Order> findByUser_IdOrderByCreatedAtDesc(Long userId, Pageable pageable);
+        Page<Order> findByUser_IdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
-    Optional<Order> findByIdAndUser_Id(Long id, Long userId);
+        Optional<Order> findByIdAndUser_Id(Long id, Long userId);
 
-    Page<Order> findAllByOrderByCreatedAtDesc(Pageable pageable);
+        Page<Order> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
-    // cho admin – filter theo status
-    Page<Order> findByStatusOrderByCreatedAtDesc(com.example.MyWeb.model.enums.OrderStatus status, Pageable pageable);
+        // cho admin – filter theo status
+        Page<Order> findByStatusOrderByCreatedAtDesc(com.example.MyWeb.model.enums.OrderStatus status,
+                        Pageable pageable);
 
-    // Dashboard statistics
-    Long countByStatus(com.example.MyWeb.model.enums.OrderStatus status);
+        // Dashboard statistics
+        Long countByStatus(com.example.MyWeb.model.enums.OrderStatus status);
 
-    @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.status = :status")
-    Double sumTotalAmountByStatus(
-            @Param("status") com.example.MyWeb.model.enums.OrderStatus status);
+        @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.status = :status")
+        Double sumTotalAmountByStatus(
+                        @Param("status") com.example.MyWeb.model.enums.OrderStatus status);
 
-    @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.status = :status AND o.createdAt >= :startDate AND o.createdAt < :endDate")
-    Double sumTotalAmountByStatusAndDateRange(
-            @Param("status") com.example.MyWeb.model.enums.OrderStatus status,
-            @Param("startDate") java.time.LocalDateTime startDate,
-            @Param("endDate") java.time.LocalDateTime endDate);
+        @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.status = :status AND o.createdAt >= :startDate AND o.createdAt < :endDate")
+        Double sumTotalAmountByStatusAndDateRange(
+                        @Param("status") com.example.MyWeb.model.enums.OrderStatus status,
+                        @Param("startDate") java.time.LocalDateTime startDate,
+                        @Param("endDate") java.time.LocalDateTime endDate);
+
+        Long countByUser_Id(Long userId);
+
+        @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.user.id = :userId")
+        Double sumTotalSpentByUserId(@Param("userId") Long userId);
 }

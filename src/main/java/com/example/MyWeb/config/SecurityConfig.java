@@ -35,6 +35,9 @@ public class SecurityConfig {
                 // TẮT CSRF CHO REST API
                 .csrf(AbstractHttpConfigurer::disable)
 
+                // BẬT CORS
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
                 // Dùng JWT -> stateless
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
@@ -43,7 +46,7 @@ public class SecurityConfig {
                         // Cho phép các endpoint này không cần token
                         .requestMatchers("/api/v1/health", "/api/v1/auth/**", "/api/v1/categories/**",
                                 "/api/v1/products/**", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**",
-                                "/swagger-resources/**", "/webjars/**", "/openapi.yaml", "/openapi.json")
+                                "/swagger-resources/**", "/webjars/**", "/openapi.yaml", "/openapi.json", "/uploads/**")
 
                         .permitAll()
                         // ADMIN
@@ -67,6 +70,20 @@ public class SecurityConfig {
                                         org.springframework.http.HttpStatus.UNAUTHORIZED)));
 
         return http.build();
+    }
+
+    @Bean
+    public org.springframework.web.cors.CorsConfigurationSource corsConfigurationSource() {
+        org.springframework.web.cors.CorsConfiguration configuration = new org.springframework.web.cors.CorsConfiguration();
+        configuration.setAllowedOrigins(java.util.List.of("http://localhost:3000", "http://localhost:3001"));
+        configuration.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+        configuration.setAllowedHeaders(java.util.List.of("*"));
+        configuration.setAllowCredentials(true);
+        configuration.setMaxAge(3600L);
+
+        org.springframework.web.cors.UrlBasedCorsConfigurationSource source = new org.springframework.web.cors.UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
     }
 
     @Bean

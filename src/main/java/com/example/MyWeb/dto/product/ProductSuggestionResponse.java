@@ -2,14 +2,15 @@ package com.example.MyWeb.dto.product;
 
 import lombok.*;
 
-@Getter
-@Setter
+@Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
-public class CategoryResponse {
+public class ProductSuggestionResponse {
     private Long id;
     private String name;
     private String slug;
-    private String imageUrl;
+    private String thumbnailUrl;
+    private Double price;
+    private String categoryName;
 }

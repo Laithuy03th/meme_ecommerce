@@ -19,6 +19,9 @@ public class JwtService {
     @Value("${jwt.expirationMs}")
     private long jwtExpirationMs;
 
+    @Value("${jwt.refreshExpirationMs}")
+    private long refreshExpirationMs;
+
     private Key getSigningKey() {
         // secret -> Key (HMAC SHA)
         return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
@@ -37,6 +40,19 @@ public class JwtService {
                 .compact();
     }
 
+    public String generateRefreshToken(String subject) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + refreshExpirationMs);
+
+        return Jwts.builder()
+                .setSubject(subject)
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
+                .claim("type", "refresh")
+                .signWith(getSigningKey(), SignatureAlgorithm.HS512)
+                .compact();
+    }
+
     public String getSubjectFromToken(String token) {
         return parseClaims(token).getBody().getSubject();
     }
@@ -45,9 +61,21 @@ public class JwtService {
         try {
             parseClaims(token);
             return true;
+        } catch (ExpiredJwtException ex) {
+            System.out.println("JwtService: Token expired: " + ex.getMessage());
+            return false;
         } catch (JwtException | IllegalArgumentException ex) {
             System.out.println("JwtService: Token validation failed: " + ex.getMessage());
             return false;
+        }
+    }
+
+    public boolean isTokenExpired(String token) {
+        try {
+            Date expiration = extractAllClaims(token).getExpiration();
+            return expiration.before(new Date());
+        } catch (ExpiredJwtException ex) {
+            return true;
         }
     }
 

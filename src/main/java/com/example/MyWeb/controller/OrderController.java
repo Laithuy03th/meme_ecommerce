@@ -34,17 +34,17 @@ public class OrderController {
 
     // GET /api/v1/users/me/orders?page=0&size=10
     @GetMapping
-    public ResponseEntity<Page<OrderResponse>> getMyOrders(
+    public ResponseEntity<Page<com.example.MyWeb.dto.order.OrderListResponse>> getMyOrders(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         Long userId = getCurrentUserId();
-        Page<OrderResponse> res = orderService.getMyOrders(userId, page, size);
+        Page<com.example.MyWeb.dto.order.OrderListResponse> res = orderService.getMyOrders(userId, page, size);
         return ResponseEntity.ok(res);
     }
 
     // GET /api/v1/users/me/orders/{orderId}
     @GetMapping("/{orderId}")
-    public ResponseEntity<OrderResponse> getOrderDetail(@PathVariable Long orderId) {
+    public ResponseEntity<com.example.MyWeb.dto.order.OrderDetailResponse> getOrderDetail(@PathVariable Long orderId) {
         Long userId = getCurrentUserId();
         return ResponseEntity.ok(orderService.getMyOrderDetail(userId, orderId));
     }
@@ -54,5 +54,14 @@ public class OrderController {
     public ResponseEntity<OrderResponse> cancelOrder(@PathVariable Long orderId) {
         Long userId = getCurrentUserId();
         return ResponseEntity.ok(orderService.cancelOrder(userId, orderId));
+    }
+
+    // POST /api/v1/users/me/orders/{orderId}/return
+    @PostMapping("/{orderId}/return")
+    public ResponseEntity<OrderResponse> requestReturn(
+            @PathVariable Long orderId,
+            @Valid @RequestBody com.example.MyWeb.dto.order.ReturnRequest request) {
+        Long userId = getCurrentUserId();
+        return ResponseEntity.ok(orderService.requestReturn(userId, orderId, request.getReason()));
     }
 }

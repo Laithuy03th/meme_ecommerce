@@ -1,5 +1,6 @@
 package com.example.MyWeb.controller;
 
+import com.example.MyWeb.dto.review.AdminReplyRequest;
 import com.example.MyWeb.dto.review.ReviewRequest;
 import com.example.MyWeb.dto.review.ReviewResponse;
 import com.example.MyWeb.security.CustomUserDetails;
@@ -41,7 +42,15 @@ public class ReviewController {
         return ResponseEntity.noContent().build();
     }
 
-    // Admin endpoint
+    // Admin endpoints
+    @PostMapping("/reviews/{reviewId}/reply")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ReviewResponse> replyToReview(
+            @PathVariable Long reviewId,
+            @Valid @RequestBody AdminReplyRequest request) {
+        return ResponseEntity.ok(reviewService.replyToReview(reviewId, request.getReply()));
+    }
+
     @DeleteMapping("/reviews/{reviewId}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteReview(@PathVariable Long reviewId) {

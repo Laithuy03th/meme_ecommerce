@@ -22,7 +22,11 @@ public class Category {
     @Column(nullable = false, unique = true)
     private String slug; // clothes, dresses, shoes
 
+    @Column(columnDefinition = "TEXT")
     private String description;
+
+    @Column(name = "image_url")
+    private String imageUrl;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")

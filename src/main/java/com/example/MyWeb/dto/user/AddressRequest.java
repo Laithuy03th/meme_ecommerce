@@ -19,5 +19,7 @@ public class AddressRequest {
     private String district;
     private String province;
     private String country = "Vietnam";
+    private String label;
+    private String zipCode;
     private Boolean isDefault = false;
 }
