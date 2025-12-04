@@ -22,9 +22,20 @@ public class DataInitializer {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @Bean
     public CommandLineRunner initData() {
         return args -> {
+            // 0. Fix constraint for UserStatus (PostgreSQL specific)
+            try {
+                jdbcTemplate.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_check");
+                jdbcTemplate.execute(
+                        "ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('ACTIVE', 'BLOCKED', 'INACTIVE'))");
+            } catch (Exception e) {
+                System.out.println("Warning: Could not update users_status_check constraint: " + e.getMessage());
+            }
+
             // 1. Tạo role CUSTOMER nếu chưa có
             Role customer = roleRepository.findByCode("CUSTOMER")
                     .orElseGet(() -> roleRepository.save(

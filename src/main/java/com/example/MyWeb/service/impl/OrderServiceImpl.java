@@ -92,7 +92,7 @@ public class OrderServiceImpl implements OrderService {
                                 .mapToDouble(CartItem::getTotalPrice)
                                 .sum();
 
-                double shippingFee = 0.0; // sau này có thể tính theo policy
+                double shippingFee = 10.0; // Fixed shipping fee as per UI design
                 double discountAmount = 0.0;
                 String voucherCode = null;
 

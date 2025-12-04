@@ -22,4 +22,6 @@ public interface AdminUserService {
 
     void resetPassword(Long userId, AdminResetPasswordRequest req);
 
+    void deleteUser(Long userId);
+
 }

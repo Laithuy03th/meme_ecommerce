@@ -2,6 +2,7 @@ package com.example.MyWeb.dto.admin;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -24,6 +25,6 @@ public class AdminCreateUserRequest {
      * Danh sách role code, ví dụ: ["ADMIN"], ["CUSTOMER"], hoặc cả hai.
      * Lưu ý khi map sang GrantedAuthority phải prefix ROLE_*
      */
-    @NotBlank
+    @NotEmpty
     private Set<String> roles;
 }

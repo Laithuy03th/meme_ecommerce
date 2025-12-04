@@ -6,9 +6,9 @@ import java.util.List;
 
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class OrderDetailResponse {
     private Long id;
     private String orderNumber;
@@ -24,9 +24,9 @@ public class OrderDetailResponse {
 
     @Getter
     @Setter
-    @NoArgsConstructor
-    @AllArgsConstructor
     @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
     public static class TimelineStep {
         private String status;
         private LocalDateTime timestamp;
@@ -35,23 +35,23 @@ public class OrderDetailResponse {
 
     @Getter
     @Setter
-    @NoArgsConstructor
-    @AllArgsConstructor
     @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
     public static class OrderItemDto {
         private Long id;
         private String productName;
         private String productImageUrl;
-        private String variantInfo; // "Color: Black"
+        private String variantInfo;
         private int quantity;
         private Double price;
     }
 
     @Getter
     @Setter
-    @NoArgsConstructor
-    @AllArgsConstructor
     @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
     public static class ShippingAddressDto {
         private String fullName;
         private String addressLine;
@@ -60,11 +60,11 @@ public class OrderDetailResponse {
 
     @Getter
     @Setter
-    @NoArgsConstructor
-    @AllArgsConstructor
     @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
     public static class PaymentMethodDto {
-        private String type; // Visa
-        private String last4; // 4242
+        private String type;
+        private String last4;
     }
 }

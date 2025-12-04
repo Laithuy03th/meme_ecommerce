@@ -5,6 +5,7 @@ import com.example.MyWeb.dto.product.AdminProductRequest;
 import com.example.MyWeb.dto.product.AdminProductResponse;
 import com.example.MyWeb.model.Category;
 import com.example.MyWeb.model.Product;
+import com.example.MyWeb.model.ProductImage;
 import com.example.MyWeb.repository.CategoryRepository;
 import com.example.MyWeb.repository.ProductRepository;
 import com.example.MyWeb.service.AdminProductService;
@@ -13,6 +14,7 @@ import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
@@ -34,6 +36,8 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .basePrice(p.getBasePrice())
                 .stockQuantity(p.getStockQuantity())
                 .thumbnailUrl(p.getThumbnailUrl())
+                .imageUrls(p.getImages() != null ? p.getImages().stream().map(ProductImage::getImageUrl)
+                        .collect(java.util.stream.Collectors.toList()) : null)
                 .status(p.getStatus())
                 .build();
     }
@@ -70,7 +74,20 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .status(request.getStatus() != null ? request.getStatus() : "ACTIVE")
                 .createdAt(now)
                 .updatedAt(now)
+                .images(new ArrayList<>())
                 .build();
+
+        if (request.getImageUrls() != null && !request.getImageUrls().isEmpty()) {
+            for (String url : request.getImageUrls()) {
+                ProductImage pi = ProductImage.builder()
+                        .product(p)
+                        .imageUrl(url)
+                        .thumbnail(false)
+                        .sortOrder(0)
+                        .build();
+                p.getImages().add(pi);
+            }
+        }
 
         p = productRepository.save(p);
 
@@ -120,6 +137,23 @@ public class AdminProductServiceImpl implements AdminProductService {
             Category category = categoryRepository.findById(request.getCategoryId())
                     .orElseThrow(() -> new RuntimeException("Category not found"));
             p.setCategory(category);
+        }
+
+        if (request.getImageUrls() != null) {
+            if (p.getImages() == null) {
+                p.setImages(new ArrayList<>());
+            } else {
+                p.getImages().clear();
+            }
+            for (String url : request.getImageUrls()) {
+                ProductImage pi = ProductImage.builder()
+                        .product(p)
+                        .imageUrl(url)
+                        .thumbnail(false)
+                        .sortOrder(0)
+                        .build();
+                p.getImages().add(pi);
+            }
         }
 
         p.setUpdatedAt(LocalDateTime.now());

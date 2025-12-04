@@ -32,6 +32,8 @@ public class AdminProductRequest {
 
     private String thumbnailUrl;
 
+    private java.util.List<String> imageUrls; // Additional images
+
     // ACTIVE / INACTIVE / DRAFT
     private String status;
 }

@@ -235,4 +235,14 @@ public class AdminUserServiceImpl implements AdminUserService {
                 user.setUpdatedAt(java.time.LocalDateTime.now());
                 userRepository.save(user);
         }
+
+        @Override
+        @Transactional
+        public void deleteUser(Long userId) {
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found"));
+                user.setStatus(UserStatus.INACTIVE);
+                user.setUpdatedAt(java.time.LocalDateTime.now());
+                userRepository.save(user);
+        }
 }

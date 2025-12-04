@@ -5,15 +5,15 @@ import java.time.LocalDateTime;
 
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
 @Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class OrderListResponse {
     private Long id;
-    private String orderNumber; // "ORD-001"
+    private String orderNumber;
     private LocalDateTime createdAt;
-    private String status; // DELIVERED, PROCESSING...
+    private String status;
     private int itemCount;
     private Double totalAmount;
-    private String firstItemImageUrl; // For the thumbnail
+    private String firstItemImageUrl;
 }

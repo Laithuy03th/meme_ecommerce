@@ -20,5 +20,6 @@ public class AdminProductResponse {
     private Double basePrice;
     private Integer stockQuantity;
     private String thumbnailUrl;
+    private java.util.List<String> imageUrls;
     private String status;
 }

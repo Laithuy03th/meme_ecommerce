@@ -24,4 +24,6 @@ public class CategoryRequest {
     private Integer sortOrder;
 
     private String status; // ACTIVE / INACTIVE
+
+    private String imageUrl;
 }

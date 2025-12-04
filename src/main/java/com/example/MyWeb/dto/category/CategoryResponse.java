@@ -16,4 +16,5 @@ public class CategoryResponse {
     private String parentName;
     private Integer sortOrder;
     private String status;
+    private String imageUrl;
 }
