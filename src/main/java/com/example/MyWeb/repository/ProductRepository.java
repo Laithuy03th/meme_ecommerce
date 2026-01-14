@@ -4,6 +4,7 @@ import com.example.MyWeb.model.Product;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.Query;
@@ -45,4 +46,6 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
         long countByStockQuantityLessThanEqual(Integer threshold);
 
         Page<Product> findByCategoryIdAndIdNotAndStatus(Long categoryId, Long id, String status, Pageable pageable);
+
+        List<Product> findByNameContainingIgnoreCaseAndStatus(String name, String status);
 }
