@@ -15,7 +15,17 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
         @Query(value = "SELECT p.* FROM products p " +
                         "JOIN categories c ON c.id = p.category_id " +
                         "WHERE p.status = 'ACTIVE' " +
-                        "AND (CAST(:keyword AS VARCHAR) IS NULL OR LOWER(p.name) LIKE '%' || LOWER(CAST(:keyword AS VARCHAR)) || '%') "
+                        "AND (CAST(:keyword AS VARCHAR) IS NULL OR " +
+                        "(LOWER(p.name) LIKE '%' || LOWER(CAST(:keyword AS VARCHAR)) || '%' OR " +
+                        // Cho description: Tìm từ nguyên vẹn (có khoảng trắng bao quanh hoặc đầu/cuối
+                        // câu)
+                        "LOWER(p.short_desc) LIKE '% ' || LOWER(CAST(:keyword AS VARCHAR)) || ' %' OR " +
+                        "LOWER(p.short_desc) LIKE LOWER(CAST(:keyword AS VARCHAR)) || ' %' OR " +
+                        "LOWER(p.short_desc) LIKE '% ' || LOWER(CAST(:keyword AS VARCHAR)) OR " +
+                        // Long desc tương tự
+                        "LOWER(p.long_desc) LIKE '% ' || LOWER(CAST(:keyword AS VARCHAR)) || ' %' OR " +
+                        "LOWER(p.long_desc) LIKE LOWER(CAST(:keyword AS VARCHAR)) || ' %' OR " +
+                        "LOWER(p.long_desc) LIKE '% ' || LOWER(CAST(:keyword AS VARCHAR)))) "
                         +
                         "AND (CAST(:categorySlug AS VARCHAR) IS NULL OR c.slug = CAST(:categorySlug AS VARCHAR)) " +
                         "AND (:minPrice IS NULL OR p.base_price >= CAST(:minPrice AS DOUBLE PRECISION)) " +
@@ -25,7 +35,15 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
                                         +
                                         "JOIN categories c ON c.id = p.category_id " +
                                         "WHERE p.status = 'ACTIVE' " +
-                                        "AND (CAST(:keyword AS VARCHAR) IS NULL OR LOWER(p.name) LIKE '%' || LOWER(CAST(:keyword AS VARCHAR)) || '%') "
+                                        "AND (CAST(:keyword AS VARCHAR) IS NULL OR " +
+                                        "(LOWER(p.name) LIKE '%' || LOWER(CAST(:keyword AS VARCHAR)) || '%' OR " +
+                                        "LOWER(p.short_desc) LIKE '% ' || LOWER(CAST(:keyword AS VARCHAR)) || ' %' OR "
+                                        +
+                                        "LOWER(p.short_desc) LIKE LOWER(CAST(:keyword AS VARCHAR)) || ' %' OR " +
+                                        "LOWER(p.short_desc) LIKE '% ' || LOWER(CAST(:keyword AS VARCHAR)) OR " +
+                                        "LOWER(p.long_desc) LIKE '% ' || LOWER(CAST(:keyword AS VARCHAR)) || ' %' OR " +
+                                        "LOWER(p.long_desc) LIKE LOWER(CAST(:keyword AS VARCHAR)) || ' %' OR " +
+                                        "LOWER(p.long_desc) LIKE '% ' || LOWER(CAST(:keyword AS VARCHAR)))) "
                                         +
                                         "AND (CAST(:categorySlug AS VARCHAR) IS NULL OR c.slug = CAST(:categorySlug AS VARCHAR)) "
                                         +

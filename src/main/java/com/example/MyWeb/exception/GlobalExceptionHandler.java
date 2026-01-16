@@ -37,6 +37,9 @@ public class GlobalExceptionHandler {
     // Xử lý các Exception khác (Fallback)
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGlobalException(Exception ex, WebRequest request) {
+        // Log lỗi ra console để debug
+        ex.printStackTrace();
+
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
                 ex.getMessage(), // Trong môi trường Prod nên ẩn message chi tiết

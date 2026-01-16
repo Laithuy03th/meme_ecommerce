@@ -265,27 +265,29 @@ public class ProductServiceImpl implements ProductService {
         public List<SearchKeywordSuggestion> getPopularSearchKeywords() {
                 // Return curated list of popular search keywords organized by category
                 return Arrays.asList(
-                                // Fashion
-                                new SearchKeywordSuggestion("dress", "Fashion", "fashion"),
-                                new SearchKeywordSuggestion("shoes", "Fashion", "fashion"),
-                                new SearchKeywordSuggestion("jacket", "Fashion", "fashion"),
-                                new SearchKeywordSuggestion("sneakers", "Fashion", "fashion"),
-                                new SearchKeywordSuggestion("boots", "Fashion", "fashion"),
-                                new SearchKeywordSuggestion("t-shirt", "Fashion", "fashion"),
+                                // Fashion (Váy, Áo)
+                                new SearchKeywordSuggestion("Váy", "Fashion", "fashion"),
+                                new SearchKeywordSuggestion("Áo", "Fashion", "fashion"),
 
-                                // Electronics
-                                new SearchKeywordSuggestion("headphones", "Electronics", "electronics"),
-                                new SearchKeywordSuggestion("watch", "Electronics", "electronics"),
-                                new SearchKeywordSuggestion("wireless", "Electronics", "electronics"),
+                                // Home & Living (Bàn, Ghế)
+                                new SearchKeywordSuggestion("Bàn", "Home & Living", "home-living"),
+                                new SearchKeywordSuggestion("Ghế", "Home & Living", "home-living"),
 
-                                // Beauty
-                                new SearchKeywordSuggestion("serum", "Beauty", "beauty"),
-                                new SearchKeywordSuggestion("cream", "Beauty", "beauty"),
-                                new SearchKeywordSuggestion("face care", "Beauty", "beauty"),
+                                // Beauty (Kem, Mặt nạ)
+                                new SearchKeywordSuggestion("Kem", "Beauty", "beauty"),
+                                new SearchKeywordSuggestion("Mặt nạ", "Beauty", "beauty"),
 
-                                // Home & Living
-                                new SearchKeywordSuggestion("lamp", "Home & Living", "home-living"),
-                                new SearchKeywordSuggestion("chair", "Home & Living", "home-living"),
-                                new SearchKeywordSuggestion("desk", "Home & Living", "home-living"));
+                                // Electronics (Điện thoại, Đồng hồ)
+                                new SearchKeywordSuggestion("Điện thoại", "Electronics", "electronics"), // Dataseed
+                                                                                                         // chưa có
+                                                                                                         // 'Điện thoại'
+                                                                                                         // mà là
+                                                                                                         // iPhone/Samsung/Galaxy
+                                                                                                         // -> Sẽ sửa
+                                                                                                         // lại logic
+                                                                                                         // tìm kiếm
+                                                                                                         // hoặc thêm
+                                                                                                         // keyword
+                                new SearchKeywordSuggestion("Đồng hồ", "Electronics", "electronics"));
         }
 }

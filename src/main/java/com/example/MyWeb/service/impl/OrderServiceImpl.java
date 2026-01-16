@@ -92,8 +92,28 @@ public class OrderServiceImpl implements OrderService {
                         throw new RuntimeException("Cart is empty");
                 }
 
-                // IMPROVED: Validate ALL stock BEFORE creating order
-                for (CartItem ci : cart.getItems()) {
+                // NEW: Filter items if selectedCartItemIds is provided
+                java.util.List<CartItem> checkoutItems;
+                if (request.getSelectedCartItemIds() != null && !request.getSelectedCartItemIds().isEmpty()) {
+                        java.util.List<Long> selectedIds = request.getSelectedCartItemIds();
+                        checkoutItems = cart.getItems().stream()
+                                        .filter(item -> selectedIds.contains(item.getId()))
+                                        .collect(java.util.stream.Collectors.toList());
+
+                        if (checkoutItems.size() != selectedIds.size()) {
+                                throw new RuntimeException("One or more selected items are not in your cart");
+                        }
+                } else {
+                        // Default: Buy all
+                        checkoutItems = new ArrayList<>(cart.getItems());
+                }
+
+                if (checkoutItems.isEmpty()) {
+                        throw new RuntimeException("No items selected for checkout");
+                }
+
+                // IMPROVED: Validate ALL stock BEFORE creating order (Only for checkout items)
+                for (CartItem ci : checkoutItems) {
                         Product p = ci.getProduct();
                         ProductVariant v = ci.getVariant();
                         int qty = ci.getQuantity();
@@ -118,7 +138,7 @@ public class OrderServiceImpl implements OrderService {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-                double itemsTotal = cart.getItems().stream()
+                double itemsTotal = checkoutItems.stream()
                                 .mapToDouble(CartItem::getTotalPrice)
                                 .sum();
 
@@ -140,9 +160,14 @@ public class OrderServiceImpl implements OrderService {
 
                 // 4. Voucher (Fetch for Free Shipping check)
                 Voucher voucher = null;
-                if (request.getVoucherCode() != null && !request.getVoucherCode().isBlank()) {
+                boolean shouldApplyVoucher = request.getVoucherCode() != null && !request.getVoucherCode().isBlank();
+                if (shouldApplyVoucher) {
                         voucher = voucherRepository.findByCode(request.getVoucherCode().toUpperCase()).orElse(null);
                 }
+
+                // 4.1 Filter items for Voucher Category Check (using checkoutItems)
+                // (Logic inside voucher checking below uses 'cart.getItems()', need to update
+                // to 'checkoutItems')
 
                 // 5. Calculate Fee
                 double shippingFee = shippingFeeService.calculateFee(shippingMethod, address, totalWeight, pm, voucher);
@@ -169,7 +194,8 @@ public class OrderServiceImpl implements OrderService {
                         if (voucher.getApplicableCategoryIds() != null
                                         && !voucher.getApplicableCategoryIds().isBlank()) {
                                 String[] catIdsToCheck = voucher.getApplicableCategoryIds().split(",");
-                                for (CartItem item : cart.getItems()) {
+                                // FIXED: Use checkoutItems
+                                for (CartItem item : checkoutItems) {
                                         String itemCatId = String.valueOf(item.getProduct().getCategory().getId());
                                         boolean isMatch = false;
                                         for (String id : catIdsToCheck) {
@@ -247,7 +273,7 @@ public class OrderServiceImpl implements OrderService {
                                 .build();
 
                 // map cart_items -> order_items (snapshot) & decrease stock
-                for (CartItem ci : cart.getItems()) {
+                for (CartItem ci : checkoutItems) {
                         Product p = ci.getProduct();
                         ProductVariant v = ci.getVariant();
                         int qty = ci.getQuantity();
@@ -288,9 +314,24 @@ public class OrderServiceImpl implements OrderService {
                 log.info("Order created successfully: orderId={}, userId={}, totalAmount={}",
                                 savedOrder.getId(), userId, totalAmount);
 
-                // Cart đã checkout → đổi status + clear items
-                cart.setStatus(CartStatus.CHECKED_OUT);
-                cart.getItems().clear();
+                // FIXED: Partial Checkout - Only remove purchased items
+                cart.getItems().removeAll(checkoutItems);
+
+                // Also delete from DB (orphanRemoval=true in Entity ensures this, but explicit
+                // delete is safer for many-to-many logic if cascade fails)
+                // With CascadeType.ALL + orphanRemoval=true, removing from list should be
+                // enough if we save cart.
+                // However, to be 100% sure we don't have dangling items:
+                // (Hibernate handles this if mapped correctly)
+
+                if (cart.getItems().isEmpty()) {
+                        // Option: Set to CHECKED_OUT or Keep ACTIVE?
+                        // If we keep ACTIVE, user can continue adding items easily.
+                        // Let's keep it ACTIVE for better partial checkout UX globally.
+                        // But if business logic requires new cart per session, we can close it.
+                        // For now: Keep ACTIVE.
+                        // cart.setStatus(CartStatus.CHECKED_OUT);
+                }
                 cart.setUpdatedAt(now);
                 cartRepository.save(cart);
 

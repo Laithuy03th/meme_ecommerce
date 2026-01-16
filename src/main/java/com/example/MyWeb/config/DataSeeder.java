@@ -24,14 +24,18 @@ public class DataSeeder implements CommandLineRunner {
         private final ProductRepository productRepository;
         private final ProductVariantRepository productVariantRepository;
         private final ProductImageRepository productImageRepository;
+        private final ShippingMethodRepository shippingMethodRepository;
         private final PasswordEncoder passwordEncoder;
 
         @Override
         @Transactional
         public void run(String... args) throws Exception {
                 System.out.println("=".repeat(70));
-                System.out.println("🌱 SEEDING DATABASE - 80 PRODUCTS FIXED (VNĐ Pricing)");
+                System.out.println("🌱 SEEDING DATABASE - PRODUCTS & SHIPPING METHODS");
                 System.out.println("=".repeat(70));
+
+                // 0. Seed Shipping Methods (Critical for Checkout)
+                seedShippingMethods();
 
                 // 1. Seed Roles
                 Role adminRole = createRole("ADMIN", "Administrator");
@@ -86,6 +90,37 @@ public class DataSeeder implements CommandLineRunner {
                 System.out.println("=".repeat(70) + "\n");
         }
 
+        private void seedShippingMethods() {
+                if (shippingMethodRepository.count() > 0)
+                        return;
+
+                System.out.println("   🚚 Seeding Shipping Methods...");
+
+                shippingMethodRepository.save(ShippingMethod.builder()
+                                .code("STANDARD")
+                                .name("Giao Hàng Tiêu Chuẩn")
+                                .description("Nhận hàng trong 3-5 ngày")
+                                .baseFee(30_000.0)
+                                .estimatedMinDays(3)
+                                .estimatedMaxDays(5)
+                                .isActive(true)
+                                .sortOrder(1)
+                                .iconUrl("https://cdn-icons-png.flaticon.com/512/709/709790.png")
+                                .build());
+
+                shippingMethodRepository.save(ShippingMethod.builder()
+                                .code("EXPRESS")
+                                .name("Giao Hàng Nhanh")
+                                .description("Nhận hàng trong 1-2 ngày")
+                                .baseFee(50_000.0)
+                                .estimatedMinDays(1)
+                                .estimatedMaxDays(2)
+                                .isActive(true)
+                                .sortOrder(2)
+                                .iconUrl("https://cdn-icons-png.flaticon.com/512/263/263142.png")
+                                .build());
+        }
+
         // ==================== DESCRIPTIONS ====================
 
         private Map<String, ProductDescriptions> createDescriptions() {
@@ -123,13 +158,13 @@ public class DataSeeder implements CommandLineRunner {
 
                 // Electronics - iPhone
                 desc.put("iphone", new ProductDescriptions(
-                                "iPhone chính hãng VN/A, chip A-series mạnh mẽ, camera Pro Max",
-                                "iPhone với chip A-series thế hệ mới nhất, hiệu năng vượt trội cho mọi tác vụ từ gaming đến chỉnh sửa video 4K. Camera Pro với cảm biến lớn, chụp đêm xuất sắc, quay video Cinematic Mode. Màn hình Super Retina XDR 120Hz mượt mà. Pin sử dụng cả ngày, hỗ trợ sạc nhanh và sạc không dây MagSafe. Bảo hành chính hãng 12 tháng tại Việt Nam."));
+                                "Điện thoại iPhone chính hãng VN/A, chip A-series mạnh mẽ, camera Pro Max",
+                                "Điện thoại thông minh iPhone với chip A-series thế hệ mới nhất, hiệu năng vượt trội cho mọi tác vụ từ gaming đến chỉnh sửa video 4K. Camera Pro với cảm biến lớn, chụp đêm xuất sắc, quay video Cinematic Mode. Màn hình Super Retina XDR 120Hz mượt mà. Pin sử dụng cả ngày, hỗ trợ sạc nhanh và sạc không dây MagSafe. Bảo hành chính hãng 12 tháng tại Việt Nam."));
 
                 // Electronics - Samsung
                 desc.put("samsung", new ProductDescriptions(
-                                "Samsung Galaxy chính hãng, màn hình Dynamic AMOLED 2X, camera 200MP",
-                                "Samsung Galaxy với màn hình Dynamic AMOLED 2X siêu mượt 120Hz, độ phân giải QHD+. Camera chính 200MP với AI xử lý ảnh thông minh, zoom quang học 10x. Chip Snapdragon/Exynos mạnh mẽ, RAM lớn đa nhiệm mượt mà. Pin khủng 5000mAh, sạc siêu nhanh 45W. Tích hợp S Pen (với dòng Ultra), chống nước IP68. Bảo hành chính hãng 12 tháng."));
+                                "Điện thoại Samsung Galaxy chính hãng, màn hình Dynamic AMOLED 2X, camera 200MP",
+                                "Điện thoại Samsung Galaxy với màn hình Dynamic AMOLED 2X siêu mượt 120Hz, độ phân giải QHD+. Camera chính 200MP với AI xử lý ảnh thông minh, zoom quang học 10x. Chip Snapdragon/Exynos mạnh mẽ, RAM lớn đa nhiệm mượt mà. Pin khủng 5000mAh, sạc siêu nhanh 45W. Tích hợp S Pen (với dòng Ultra), chống nước IP68. Bảo hành chính hãng 12 tháng."));
 
                 // Home - Table
                 desc.put("table", new ProductDescriptions(

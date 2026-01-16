@@ -21,4 +21,9 @@ public class CheckoutRequest {
     private String note;
 
     private String voucherCode; // Optional voucher code
+
+    // New: Support for Partial Checkout (Buying selected items only)
+    // If null or empty, behavior defaults to "Buy All" (or throw error depending on
+    // strictness)
+    private java.util.List<Long> selectedCartItemIds;
 }

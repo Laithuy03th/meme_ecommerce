@@ -689,6 +689,13 @@ components:
           description: Optional discount voucher code
         note:
           type: string
+        selectedCartItemIds:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: List of Cart Item IDs to checkout (Partial Checkout). If empty, buys all.
+          example: [102, 105]
     OrderItemResponse:
       type: object
       properties:
