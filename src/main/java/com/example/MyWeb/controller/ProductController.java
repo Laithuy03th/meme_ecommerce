@@ -31,10 +31,13 @@ public class ProductController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Double minPrice,
             @RequestParam(required = false) Double maxPrice,
+            @RequestParam(required = false) String brand,
+            @RequestParam(required = false) Double minRating,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "newest") String sortBy) {
-        Page<ProductListItemResponse> result = productService.getProducts(keyword, category, minPrice, maxPrice, page,
+        Page<ProductListItemResponse> result = productService.getProducts(keyword, category, minPrice, maxPrice, brand,
+                minRating, page,
                 size, sortBy);
         return ResponseEntity.ok(result);
     }

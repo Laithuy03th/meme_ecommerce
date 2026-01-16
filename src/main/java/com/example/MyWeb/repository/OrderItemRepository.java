@@ -1,10 +1,13 @@
 package com.example.MyWeb.repository;
 
 import com.example.MyWeb.model.OrderItem;
+import com.example.MyWeb.model.enums.OrderStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
 
@@ -17,4 +20,31 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
             "ORDER BY totalSold DESC " +
             "LIMIT 10")
     List<Object[]> findTopSellingProducts();
+
+    // NEW: Purchase verification for reviews
+    /**
+     * Find delivered order items for a user and product
+     * Used to verify user purchased the product before allowing review
+     */
+    @Query("SELECT oi FROM OrderItem oi " +
+            "WHERE oi.order.user.id = :userId " +
+            "AND oi.product.id = :productId " +
+            "AND oi.order.status = :status " +
+            "ORDER BY oi.order.createdAt DESC")
+    List<OrderItem> findByUserIdAndProductIdAndOrderStatus(
+            @Param("userId") Long userId,
+            @Param("productId") Long productId,
+            @Param("status") OrderStatus status);
+
+    /**
+     * Find a specific order item that user can review
+     * Returns order item only if order is DELIVERED and not yet reviewed
+     */
+    @Query("SELECT oi FROM OrderItem oi " +
+            "WHERE oi.id = :orderItemId " +
+            "AND oi.order.user.id = :userId " +
+            "AND oi.order.status = 'DELIVERED'")
+    Optional<OrderItem> findReviewableOrderItem(
+            @Param("orderItemId") Long orderItemId,
+            @Param("userId") Long userId);
 }

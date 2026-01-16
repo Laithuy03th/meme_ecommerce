@@ -52,6 +52,22 @@ public class Voucher {
     @Builder.Default
     private Boolean isActive = true;
 
+    // Free shipping support (Shopee-level feature)
+    @Column(name = "free_shipping")
+    @Builder.Default
+    private Boolean freeShipping = false; // If true, shipping fee = 0
+
+    @Column(name = "usage_limit_per_user")
+    @Builder.Default
+    private Integer usageLimitPerUser = 1; // Default 1 per user
+
+    // Comma separated category IDs (e.g. "1,2,5"). Null means all categories.
+    @Column(name = "applicable_category_ids")
+    private String applicableCategoryIds;
+
+    @Column(name = "max_shipping_discount")
+    private Double maxShippingDiscount; // Max discount on shipping fee
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

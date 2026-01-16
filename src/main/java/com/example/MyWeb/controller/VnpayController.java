@@ -23,7 +23,7 @@ public class VnpayController {
     private String frontendUrl;
 
     @PostMapping("/api/v1/payments/vnpay/initiate")
-    public ResponseEntity<?> initiate(@RequestBody InitReq r) {
+    public ResponseEntity<?> initiate(@jakarta.validation.Valid @RequestBody InitReq r) {
         if (r.amount == null || r.amount <= 0)
             return ResponseEntity.badRequest().body(Map.of("message", "amount invalid"));
         String tmn = env.getProperty("VNP_TMNCODE"), secret = env.getProperty("VNP_HASHSECRET");
@@ -119,11 +119,19 @@ public class VnpayController {
     }
 
     public static class InitReq {
+        @jakarta.validation.constraints.NotNull(message = "Order ID is required")
         public Long orderId;
+
+        @jakarta.validation.constraints.NotNull(message = "Amount is required")
+        @jakarta.validation.constraints.Min(value = 1000, message = "Amount must be at least 1000 VND")
         public Long amount;
+
         public String orderInfo;
         public String locale;
+
+        @jakarta.validation.constraints.NotBlank(message = "Return URL is required")
         public String returnUrl;
+
         public String ipnUrl;
     }
 }

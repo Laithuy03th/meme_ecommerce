@@ -1,5 +1,6 @@
 package com.example.MyWeb.service.impl;
 
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.Arrays;
 import java.util.List;
@@ -30,6 +31,8 @@ public class ProductServiceImpl implements ProductService {
         // ================== LIST ==================
 
         private ProductListItemResponse toListItem(Product p) {
+                String stockStatus = calculateStockStatus(p.getStockQuantity());
+
                 return ProductListItemResponse.builder()
                                 .id(p.getId())
                                 .name(p.getName())
@@ -38,6 +41,15 @@ public class ProductServiceImpl implements ProductService {
                                 .price(p.getBasePrice())
                                 .categorySlug(p.getCategory().getSlug())
                                 .categoryName(p.getCategory().getName())
+
+                                // Enhanced fields
+                                .brand(p.getBrand())
+                                .averageRating(p.getAverageRating())
+                                .reviewCount(p.getReviewCount() != null ? p.getReviewCount() : 0)
+                                .soldCount(p.getSoldCount() != null ? p.getSoldCount() : 0)
+                                .stockStatus(stockStatus)
+                                .isFeatured(p.getIsFeatured())
+
                                 .createdAt(p.getCreatedAt())
                                 .build();
         }
@@ -48,6 +60,8 @@ public class ProductServiceImpl implements ProductService {
                         String categorySlug,
                         Double minPrice,
                         Double maxPrice,
+                        String brand,
+                        Double minRating,
                         int page,
                         int size,
                         String sortBy) {
@@ -55,17 +69,23 @@ public class ProductServiceImpl implements ProductService {
                 String kw = (keyword == null || keyword.trim().isEmpty()) ? null : keyword.trim().toLowerCase();
                 String catSlug = (categorySlug == null || categorySlug.trim().isEmpty()) ? null : categorySlug.trim();
 
+                // UPDATED: Add new sort options
                 Sort sort;
                 switch (sortBy) {
                         case "oldest" -> sort = Sort.by("created_at").ascending();
                         case "priceAsc" -> sort = Sort.by("base_price").ascending();
                         case "priceDesc" -> sort = Sort.by("base_price").descending();
+                        case "bestSelling", "popular" -> sort = Sort.by("sold_count").descending()
+                                        .and(Sort.by("created_at").descending());
+                        case "topRated" -> sort = Sort.by("average_rating").descending()
+                                        .and(Sort.by("review_count").descending());
                         default -> sort = Sort.by("created_at").descending(); // newest
                 }
 
                 Pageable pageable = PageRequest.of(page, size, sort);
 
-                Page<Product> productPage = productRepository.searchProducts(kw, catSlug, minPrice, maxPrice, pageable);
+                Page<Product> productPage = productRepository.searchProducts(kw, catSlug, minPrice, maxPrice, brand,
+                                minRating, pageable);
 
                 return productPage.map(this::toListItem);
         }
@@ -95,6 +115,20 @@ public class ProductServiceImpl implements ProductService {
                                 .build();
         }
 
+        /**
+         * Calculate stock status for display
+         */
+        private String calculateStockStatus(Integer stock) {
+                if (stock == null || stock == 0) {
+                        return "OUT_OF_STOCK";
+                } else if (stock < 10) {
+                        return "LOW_STOCK";
+                } else {
+                        return "IN_STOCK";
+                }
+        }
+
+        // UPDATED: Enhanced with all new fields
         private ProductDetailResponse toDetail(Product p) {
                 // Sort images theo sortOrder rồi id
                 List<ProductImageResponse> imageDtos = p.getImages() == null ? List.of()
@@ -117,6 +151,9 @@ public class ProductServiceImpl implements ProductService {
                                                 .map(v -> toVariantDto(v, p.getBasePrice()))
                                                 .toList();
 
+                // Calculate stock status
+                String stockStatus = calculateStockStatus(p.getStockQuantity());
+
                 return ProductDetailResponse.builder()
                                 .id(p.getId())
                                 .name(p.getName())
@@ -128,6 +165,26 @@ public class ProductServiceImpl implements ProductService {
                                 .basePrice(p.getBasePrice())
                                 .thumbnailUrl(p.getThumbnailUrl())
                                 .status(p.getStatus())
+
+                                // Product metadata
+                                .brand(p.getBrand())
+                                .sku(p.getSku())
+                                .weight(p.getWeight())
+
+                                // Stock information
+                                .stockQuantity(p.getStockQuantity())
+                                .stockStatus(stockStatus)
+
+                                // Analytics & Social Proof
+                                .averageRating(p.getAverageRating())
+                                .reviewCount(p.getReviewCount() != null ? p.getReviewCount() : 0)
+                                .soldCount(p.getSoldCount() != null ? p.getSoldCount() : 0)
+                                .viewCount(p.getViewCount() != null ? p.getViewCount() : 0)
+
+                                // Media
+                                .videoUrl(p.getVideoUrl())
+                                .isFeatured(p.getIsFeatured())
+
                                 .createdAt(p.getCreatedAt())
                                 .updatedAt(p.getUpdatedAt())
                                 .images(imageDtos)
@@ -136,18 +193,32 @@ public class ProductServiceImpl implements ProductService {
         }
 
         @Override
-        @Transactional(readOnly = true)
+        @Transactional // UPDATED: Removed readOnly to enable view tracking
         public ProductDetailResponse getProductDetailBySlug(String slug) {
                 Product p = productRepository.findBySlugAndStatus(slug, "ACTIVE")
                                 .orElseThrow(() -> new RuntimeException("Product not found"));
+
+                // Track view count
+                Integer currentViews = p.getViewCount() != null ? p.getViewCount() : 0;
+                p.setViewCount(currentViews + 1);
+                p.setUpdatedAt(LocalDateTime.now());
+                productRepository.save(p);
+
                 return toDetail(p);
         }
 
         @Override
-        @Transactional(readOnly = true)
+        @Transactional // UPDATED: Removed readOnly to enable view tracking
         public ProductDetailResponse getProductDetailById(Long id) {
                 Product p = productRepository.findByIdAndStatus(id, "ACTIVE")
                                 .orElseThrow(() -> new RuntimeException("Product not found"));
+
+                // Track view count
+                Integer currentViews = p.getViewCount() != null ? p.getViewCount() : 0;
+                p.setViewCount(currentViews + 1);
+                p.setUpdatedAt(LocalDateTime.now());
+                productRepository.save(p);
+
                 return toDetail(p);
         }
 
@@ -175,7 +246,8 @@ public class ProductServiceImpl implements ProductService {
                 String catSlug = (categorySlug == null || categorySlug.trim().isEmpty()) ? null : categorySlug.trim();
 
                 Pageable pageable = PageRequest.of(0, limit);
-                Page<Product> products = productRepository.searchProducts(kw, catSlug, null, null, pageable);
+                Page<Product> products = productRepository.searchProducts(kw, catSlug, null, null, null, null,
+                                pageable);
 
                 return products.getContent().stream()
                                 .map(p -> ProductSuggestionResponse.builder()

@@ -29,6 +29,11 @@ public class Order {
     @JoinColumn(name = "address_id")
     private Address address;
 
+    // Phương thức vận chuyển (Standard/Express)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "shipping_method_id")
+    private ShippingMethod shippingMethod;
+
     // PENDING / PAID / SHIPPED / COMPLETED / CANCELED
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

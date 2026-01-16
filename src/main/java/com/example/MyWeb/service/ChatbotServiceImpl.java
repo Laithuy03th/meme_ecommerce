@@ -238,8 +238,8 @@ public class ChatbotServiceImpl implements ChatbotService {
 
     private ChatResponse handleGreeting(ChatResponse.ChatResponseBuilder builder) {
         String[] greetings = {
-                "Xin chào! 👋 Tôi là trợ lý ảo của MyWeb. Tôi có thể giúp gì cho bạn?",
-                "Chào bạn! 😊 Mình có thể hỗ trợ bạn về sản phẩm, đơn hàng, thanh toán. Bạn cần gì nhé?",
+                "Xin chào! Tôi là trợ lý ảo của MyWeb. Tôi có thể giúp gì cho bạn?",
+                "Chào bạn! Mình có thể hỗ trợ bạn về sản phẩm, đơn hàng, thanh toán. Bạn cần gì nhé?",
                 "Hello! Rất vui được hỗ trợ bạn hôm nay. Bạn muốn tìm hiểu về điều gì?"
         };
 
@@ -311,7 +311,7 @@ public class ChatbotServiceImpl implements ChatbotService {
                         .build();
             }
 
-            // ✅ FIX: Tạo data structure để FE render được
+            // Tạo data structure để FE render được
             List<Map<String, Object>> ordersData = page.getContent().stream()
                     .map(o -> {
                         Map<String, Object> orderMap = new HashMap<>();
@@ -344,7 +344,7 @@ public class ChatbotServiceImpl implements ChatbotService {
                             .build())
                     .collect(Collectors.toList());
 
-            // ✅ FIX: Thêm .data() chứa thông tin đơn hàng để FE render UI
+            // Thêm .data() chứa thông tin đơn hàng để FE render UI
             return builder
                     .response(msg.toString())
                     .data(Map.of("orders", ordersData, "totalOrders", page.getTotalElements()))

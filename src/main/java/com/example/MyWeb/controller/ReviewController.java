@@ -42,6 +42,19 @@ public class ReviewController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * PUT /api/v1/products/reviews/{reviewId}/me
+     * Update own review (max 2 edits allowed - Shopee rule)
+     */
+    @PutMapping("/reviews/{reviewId}/me")
+    public ResponseEntity<ReviewResponse> updateMyReview(
+            @AuthenticationPrincipal CustomUserDetails userDetails,
+            @PathVariable Long reviewId,
+            @Valid @RequestBody ReviewRequest request) {
+        return ResponseEntity.ok(
+                reviewService.updateReview(userDetails.getId(), reviewId, request));
+    }
+
     // Admin endpoints
     @PostMapping("/reviews/{reviewId}/reply")
     @PreAuthorize("hasRole('ADMIN')")

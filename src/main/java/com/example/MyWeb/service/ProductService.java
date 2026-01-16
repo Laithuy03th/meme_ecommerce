@@ -15,6 +15,8 @@ public interface ProductService {
             String categorySlug,
             Double minPrice,
             Double maxPrice,
+            String brand,
+            Double minRating,
             int page,
             int size,
             String sortBy // newest, oldest, priceAsc, priceDesc

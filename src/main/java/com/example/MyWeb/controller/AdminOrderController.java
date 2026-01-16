@@ -3,6 +3,7 @@ package com.example.MyWeb.controller;
 
 import com.example.MyWeb.dto.order.AdminOrderDetailResponse;
 import com.example.MyWeb.dto.order.AdminOrderSummaryResponse;
+import com.example.MyWeb.dto.order.OrderResponse;
 import com.example.MyWeb.dto.order.UpdateOrderStatusRequest;
 import com.example.MyWeb.service.AdminOrderService;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 public class AdminOrderController {
 
     private final AdminOrderService adminOrderService;
+    private final com.example.MyWeb.service.OrderService orderService; // Inject OrderService for return logic
 
     @GetMapping
     public ResponseEntity<Page<AdminOrderSummaryResponse>> list(
@@ -32,10 +34,21 @@ public class AdminOrderController {
         return ResponseEntity.ok(adminOrderService.getDetail(orderId));
     }
 
-    @PatchMapping("/{orderId}/status")
-    public ResponseEntity<AdminOrderDetailResponse> updateStatus(
+    // Updated to match Swagger (PUT) and support new simple status update
+    @PutMapping("/{orderId}/status")
+    public ResponseEntity<?> updateStatus(
             @PathVariable Long orderId,
-            @Valid @RequestBody UpdateOrderStatusRequest request) {
+            @RequestBody UpdateOrderStatusRequest request) {
+        // Use AdminOrderService if it has logic, or OrderService.
+        // Let's stick to AdminOrderService for consistency if possible, but fallback to
+        // OrderService for simple status update if needed.
+        // Existing code used adminOrderService.updateStatus
         return ResponseEntity.ok(adminOrderService.updateStatus(orderId, request.getStatus()));
+    }
+
+    // New endpoint from the deleted controller
+    @PutMapping("/{orderId}/return/approve")
+    public ResponseEntity<?> approveReturn(@PathVariable Long orderId) {
+        return ResponseEntity.ok(orderService.approveReturn(orderId));
     }
 }

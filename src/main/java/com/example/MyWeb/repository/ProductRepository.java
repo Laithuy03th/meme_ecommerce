@@ -19,7 +19,9 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
                         +
                         "AND (CAST(:categorySlug AS VARCHAR) IS NULL OR c.slug = CAST(:categorySlug AS VARCHAR)) " +
                         "AND (:minPrice IS NULL OR p.base_price >= CAST(:minPrice AS DOUBLE PRECISION)) " +
-                        "AND (:maxPrice IS NULL OR p.base_price <= CAST(:maxPrice AS DOUBLE PRECISION))", countQuery = "SELECT COUNT(p.*) FROM products p "
+                        "AND (:maxPrice IS NULL OR p.base_price <= CAST(:maxPrice AS DOUBLE PRECISION)) " +
+                        "AND (CAST(:brand AS VARCHAR) IS NULL OR p.brand = CAST(:brand AS VARCHAR)) " +
+                        "AND (:minRating IS NULL OR p.average_rating >= CAST(:minRating AS DOUBLE PRECISION))", countQuery = "SELECT COUNT(p.*) FROM products p "
                                         +
                                         "JOIN categories c ON c.id = p.category_id " +
                                         "WHERE p.status = 'ACTIVE' " +
@@ -29,12 +31,17 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
                                         +
                                         "AND (:minPrice IS NULL OR p.base_price >= CAST(:minPrice AS DOUBLE PRECISION)) "
                                         +
-                                        "AND (:maxPrice IS NULL OR p.base_price <= CAST(:maxPrice AS DOUBLE PRECISION))", nativeQuery = true)
+                                        "AND (:maxPrice IS NULL OR p.base_price <= CAST(:maxPrice AS DOUBLE PRECISION)) "
+                                        +
+                                        "AND (CAST(:brand AS VARCHAR) IS NULL OR p.brand = CAST(:brand AS VARCHAR)) " +
+                                        "AND (:minRating IS NULL OR p.average_rating >= CAST(:minRating AS DOUBLE PRECISION))", nativeQuery = true)
         Page<Product> searchProducts(
                         @Param("keyword") String keyword,
                         @Param("categorySlug") String categorySlug,
                         @Param("minPrice") Double minPrice,
                         @Param("maxPrice") Double maxPrice,
+                        @Param("brand") String brand,
+                        @Param("minRating") Double minRating,
                         Pageable pageable);
 
         boolean existsBySlug(String slug);
@@ -48,4 +55,7 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
         Page<Product> findByCategoryIdAndIdNotAndStatus(Long categoryId, Long id, String status, Pageable pageable);
 
         List<Product> findByNameContainingIgnoreCaseAndStatus(String name, String status);
+
+        // For DataSeeder: count existing products in a category
+        long countByCategory(com.example.MyWeb.model.Category category);
 }

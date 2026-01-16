@@ -22,4 +22,10 @@ public class VoucherResponse {
     private Integer usageLimit;
     private Integer usedCount;
     private Boolean isActive;
+
+    // New fields
+    private Integer usageLimitPerUser;
+    private Boolean freeShipping;
+    private Double maxShippingDiscount;
+    private String applicableCategoryIds;
 }

@@ -27,6 +27,25 @@ public class ProductDetailResponse {
 
     private String status; // ACTIVE / INACTIVE / DRAFT
 
+    // Product metadata
+    private String brand;
+    private String sku;
+    private Double weight; // kg - for shipping calculation
+
+    // Stock information
+    private Integer stockQuantity;
+    private String stockStatus; // "IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK"
+
+    // Analytics & Social Proof
+    private Double averageRating;
+    private Integer reviewCount;
+    private Integer soldCount;
+    private Integer viewCount;
+
+    // Media
+    private String videoUrl;
+    private Boolean isFeatured;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

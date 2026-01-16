@@ -9,10 +9,13 @@ import lombok.Setter;
 @Setter
 public class CheckoutRequest {
 
-    @NotNull
+    @NotNull(message = "Address is required")
     private Long addressId;
 
-    @NotBlank
+    @NotNull(message = "Shipping method is required")
+    private Long shippingMethodId; // Shipping method selection (Standard/Express)
+
+    @NotBlank(message = "Payment method is required")
     private String paymentMethod; // COD, VNPAY, MOMO...
 
     private String note;

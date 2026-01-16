@@ -6,7 +6,11 @@ import com.example.MyWeb.dto.order.OrderResponse;
 import com.example.MyWeb.model.*;
 import com.example.MyWeb.repository.*;
 import com.example.MyWeb.service.OrderService;
+import com.example.MyWeb.service.StockService;
+import com.example.MyWeb.service.ShippingFeeService;
+import com.example.MyWeb.repository.ShippingMethodRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +28,7 @@ import com.example.MyWeb.repository.VoucherRepository;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class OrderServiceImpl implements OrderService {
 
         private final CartRepository cartRepository;
@@ -33,6 +38,11 @@ public class OrderServiceImpl implements OrderService {
         private final VoucherRepository voucherRepository;
         private final ProductRepository productRepository;
         private final ProductVariantRepository productVariantRepository;
+
+        // NEW: Inject StockService for proper stock management
+        private final StockService stockService;
+        private final ShippingFeeService shippingFeeService;
+        private final ShippingMethodRepository shippingMethodRepository;
 
         private OrderItemResponse toItemDto(OrderItem item) {
                 Product p = item.getProduct();
@@ -82,6 +92,26 @@ public class OrderServiceImpl implements OrderService {
                         throw new RuntimeException("Cart is empty");
                 }
 
+                // IMPROVED: Validate ALL stock BEFORE creating order
+                for (CartItem ci : cart.getItems()) {
+                        Product p = ci.getProduct();
+                        ProductVariant v = ci.getVariant();
+                        int qty = ci.getQuantity();
+
+                        if (v != null) {
+                                // Validate variant stock
+                                Integer variantStock = v.getStock() != null ? v.getStock() : 0;
+                                if (variantStock < qty) {
+                                        throw new RuntimeException("Out of stock for variant: " + p.getName() + " - "
+                                                        + v.getColor() + "/" + v.getSize() + " (Available: "
+                                                        + variantStock + ", Requested: " + qty + ")");
+                                }
+                        } else {
+                                // Validate product stock using StockService
+                                stockService.validateStock(p.getId(), qty);
+                        }
+                }
+
                 Address address = addressRepository.findByIdAndUserId(request.getAddressId(), userId)
                                 .orElseThrow(() -> new RuntimeException("Address not found"));
 
@@ -92,24 +122,104 @@ public class OrderServiceImpl implements OrderService {
                                 .mapToDouble(CartItem::getTotalPrice)
                                 .sum();
 
-                double shippingFee = 10.0; // Fixed shipping fee as per UI design
+                // 1. Calculate Total Weight (Set to 0.0 as per business rule - simplified
+                // shipping)
+                double totalWeight = 0.0;
+
+                // 2. Shipping Method
+                ShippingMethod shippingMethod = shippingMethodRepository.findById(request.getShippingMethodId())
+                                .orElseThrow(() -> new RuntimeException("Shipping method not found"));
+
+                // 3. Payment Method (Parse here for Fee Calculation)
+                PaymentMethod pm;
+                try {
+                        pm = PaymentMethod.valueOf(request.getPaymentMethod());
+                } catch (IllegalArgumentException e) {
+                        throw new RuntimeException("Invalid payment method: " + request.getPaymentMethod());
+                }
+
+                // 4. Voucher (Fetch for Free Shipping check)
+                Voucher voucher = null;
+                if (request.getVoucherCode() != null && !request.getVoucherCode().isBlank()) {
+                        voucher = voucherRepository.findByCode(request.getVoucherCode().toUpperCase()).orElse(null);
+                }
+
+                // 5. Calculate Fee
+                double shippingFee = shippingFeeService.calculateFee(shippingMethod, address, totalWeight, pm, voucher);
+
                 double discountAmount = 0.0;
                 String voucherCode = null;
 
-                // Apply voucher if provided
-                if (request.getVoucherCode() != null && !request.getVoucherCode().isBlank()) {
-                        Voucher voucher = voucherRepository.findByCode(request.getVoucherCode().toUpperCase())
-                                        .orElse(null);
+                // Apply voucher if provided (Product Discount)
+                if (voucher != null) {
 
-                        if (voucher != null && voucher.isValid()) {
-                                double subtotal = itemsTotal + shippingFee;
-                                if (voucher.getMinOrderAmount() == null || subtotal >= voucher.getMinOrderAmount()) {
-                                        discountAmount = voucher.calculateDiscount(subtotal);
+                        // 1. Validate basic rules
+                        if (!voucher.isValid()) {
+                                throw new RuntimeException("Voucher is invalid or expired");
+                        }
+
+                        // 2. Validate Usage Limit Per User
+                        long userUsage = orderRepository.countByUser_IdAndVoucherCode(userId, voucher.getCode());
+                        if (voucher.getUsageLimitPerUser() != null && userUsage >= voucher.getUsageLimitPerUser()) {
+                                throw new RuntimeException("You have reached the usage limit for this voucher");
+                        }
+
+                        // 3. Calculate eligible amount based on Categories
+                        double eligibleAmount = 0.0;
+                        if (voucher.getApplicableCategoryIds() != null
+                                        && !voucher.getApplicableCategoryIds().isBlank()) {
+                                String[] catIdsToCheck = voucher.getApplicableCategoryIds().split(",");
+                                for (CartItem item : cart.getItems()) {
+                                        String itemCatId = String.valueOf(item.getProduct().getCategory().getId());
+                                        boolean isMatch = false;
+                                        for (String id : catIdsToCheck) {
+                                                if (id.trim().equals(itemCatId)) {
+                                                        isMatch = true;
+                                                        break;
+                                                }
+                                        }
+                                        if (isMatch) {
+                                                eligibleAmount += item.getTotalPrice();
+                                        }
+                                }
+                                if (eligibleAmount == 0) {
+                                        // Voucher match no items.
+                                        // If it also didn't give free shipping, then it's useless for this order.
+                                        // We check if free shipping was applied? (hard to know here without boolean
+                                        // flag)
+                                        // Simple rule: If category mismatch -> Warning only (User might get Free Ship)
+                                        // throw new RuntimeException("This voucher is not applicable to any items in
+                                        // your cart");
+                                }
+                        } else {
+                                eligibleAmount = itemsTotal; // Apply to all items
+                        }
+
+                        // 4. Validate Min Order Amount & Calculate Discount
+                        if (eligibleAmount > 0) {
+                                if (voucher.getMinOrderAmount() != null
+                                                && eligibleAmount < voucher.getMinOrderAmount()) {
+                                        throw new RuntimeException(
+                                                        "Order amount does not meet minimum requirement for this voucher");
+                                }
+                                discountAmount = voucher.calculateDiscount(eligibleAmount);
+                                voucherCode = voucher.getCode();
+
+                                // Increment voucher usage
+                                voucher.setUsedCount(voucher.getUsedCount() + 1);
+                                voucherRepository.save(voucher);
+                        } else {
+                                // If eligibleAmount is 0 but we are here, it means voucher valid but no product
+                                // match.
+                                // If it gave free shipping, we should still record usage and save voucherCode?
+                                // Yes, if Free Shipping was applied.
+                                if (Boolean.TRUE.equals(voucher.getFreeShipping())) {
                                         voucherCode = voucher.getCode();
-
-                                        // Increment voucher usage
                                         voucher.setUsedCount(voucher.getUsedCount() + 1);
                                         voucherRepository.save(voucher);
+                                } else {
+                                        throw new RuntimeException(
+                                                        "This voucher is not applicable to any items in your cart");
                                 }
                         }
                 }
@@ -118,13 +228,7 @@ public class OrderServiceImpl implements OrderService {
 
                 LocalDateTime now = LocalDateTime.now();
 
-                // Parse PaymentMethod from String
-                PaymentMethod pm;
-                try {
-                        pm = PaymentMethod.valueOf(request.getPaymentMethod());
-                } catch (IllegalArgumentException e) {
-                        throw new RuntimeException("Invalid payment method: " + request.getPaymentMethod());
-                }
+                // PaymentMethod pm already parsed above
 
                 Order order = Order.builder()
                                 .user(user)
@@ -142,26 +246,27 @@ public class OrderServiceImpl implements OrderService {
                                 .items(new ArrayList<>())
                                 .build();
 
-                // map cart_items -> order_items (snapshot)
+                // map cart_items -> order_items (snapshot) & decrease stock
                 for (CartItem ci : cart.getItems()) {
                         Product p = ci.getProduct();
                         ProductVariant v = ci.getVariant();
                         int qty = ci.getQuantity();
 
-                        // Check & Deduct Stock
+                        // IMPROVED: Use StockService for proper stock management
                         if (v != null) {
+                                // Handle variant stock decrease (separate logic for variants)
                                 if (v.getStock() == null || v.getStock() < qty) {
                                         throw new RuntimeException("Out of stock for variant: " + p.getName() + " - "
                                                         + v.getColor() + "/" + v.getSize());
                                 }
                                 v.setStock(v.getStock() - qty);
                                 productVariantRepository.save(v);
+
+                                log.info("Decreased variant stock: product={}, variant={}, quantity={}",
+                                                p.getId(), v.getId(), qty);
                         } else {
-                                if (p.getStockQuantity() == null || p.getStockQuantity() < qty) {
-                                        throw new RuntimeException("Out of stock for product: " + p.getName());
-                                }
-                                p.setStockQuantity(p.getStockQuantity() - qty);
-                                productRepository.save(p);
+                                // Use StockService for product-level stock
+                                stockService.decreaseStock(p.getId(), qty);
                         }
 
                         OrderItem oi = OrderItem.builder()
@@ -177,8 +282,11 @@ public class OrderServiceImpl implements OrderService {
                         order.getItems().add(oi);
                 }
 
-                // Lưu order + items
+                // Save order + items
                 Order savedOrder = orderRepository.save(order);
+
+                log.info("Order created successfully: orderId={}, userId={}, totalAmount={}",
+                                savedOrder.getId(), userId, totalAmount);
 
                 // Cart đã checkout → đổi status + clear items
                 cart.setStatus(CartStatus.CHECKED_OUT);
@@ -286,17 +394,38 @@ public class OrderServiceImpl implements OrderService {
                 Order order = orderRepository.findByIdAndUser_Id(orderId, userId)
                                 .orElseThrow(() -> new RuntimeException("Order not found"));
 
-                // Only allow cancel if order is PENDING
-                if (order.getStatus() != OrderStatus.PENDING) {
+                // Only allow cancel if order is PENDING or CONFIRMED
+                if (order.getStatus() != OrderStatus.PENDING && order.getStatus() != OrderStatus.CONFIRMED) {
                         throw new RuntimeException("Cannot cancel order with status: " + order.getStatus());
+                }
+
+                // FIXED: Return stock to inventory
+                for (OrderItem item : order.getItems()) {
+                        Product product = item.getProduct();
+                        ProductVariant variant = item.getVariant();
+                        int quantity = item.getQuantity();
+
+                        if (variant != null) {
+                                // Return variant stock
+                                Integer currentStock = variant.getStock() != null ? variant.getStock() : 0;
+                                variant.setStock(currentStock + quantity);
+                                productVariantRepository.save(variant);
+
+                                log.info("Returned variant stock on cancel: product={}, variant={}, quantity={}",
+                                                product.getId(), variant.getId(), quantity);
+                        } else {
+                                // Use StockService to return product stock
+                                stockService.increaseStock(product.getId(), quantity);
+                        }
                 }
 
                 order.setStatus(OrderStatus.CANCELED);
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
 
-                return toOrderDto(order);
+                log.info("Order cancelled and stock returned: orderId={}, userId={}", orderId, userId);
 
+                return toOrderDto(order);
         }
 
         @Override
@@ -320,6 +449,240 @@ public class OrderServiceImpl implements OrderService {
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
 
+                log.info("Return requested: orderId={}, userId={}, reason={}", orderId, userId, reason);
+
+                // NOTE: Stock will be returned after admin approves the return request
+                // This should be handled in AdminOrderService.approveReturn()
+
+                return toOrderDto(order);
+        }
+
+        @Override
+        @Transactional
+        public com.example.MyWeb.dto.cart.CartResponse reorder(Long userId, Long orderId) {
+                // Get the old order
+                Order oldOrder = orderRepository.findByIdAndUser_Id(orderId, userId)
+                                .orElseThrow(() -> new RuntimeException(
+                                                "Order not found or you don't have permission"));
+
+                // Get user's active cart (or create new one)
+                Cart cart = cartRepository.findByUser_IdAndStatus(userId, CartStatus.ACTIVE)
+                                .orElseGet(() -> {
+                                        User user = userRepository.findById(userId)
+                                                        .orElseThrow(() -> new RuntimeException("User not found"));
+
+                                        Cart newCart = Cart.builder()
+                                                        .user(user)
+                                                        .status(CartStatus.ACTIVE)
+                                                        .createdAt(LocalDateTime.now())
+                                                        .updatedAt(LocalDateTime.now())
+                                                        .items(new java.util.ArrayList<>())
+                                                        .build();
+                                        return cartRepository.save(newCart);
+                                });
+
+                // Add all items from old order to cart
+                for (OrderItem orderItem : oldOrder.getItems()) {
+                        Product product = orderItem.getProduct();
+                        ProductVariant variant = orderItem.getVariant();
+                        int quantity = orderItem.getQuantity();
+
+                        // Validate stock availability
+                        if (variant != null) {
+                                Integer variantStock = variant.getStock() != null ? variant.getStock() : 0;
+                                if (variantStock < quantity) {
+                                        log.warn("Insufficient stock for variant: {}, requested: {}, available: {}",
+                                                        variant.getId(), quantity, variantStock);
+                                        continue;
+                                }
+                        } else {
+                                Integer productStock = product.getStockQuantity() != null
+                                                ? product.getStockQuantity()
+                                                : 0;
+                                if (productStock < quantity) {
+                                        log.warn("Insufficient stock for product: {}, requested: {}, available: {}",
+                                                        product.getId(), quantity, productStock);
+                                        continue;
+                                }
+                        }
+
+                        // Calculate price
+                        double unitPrice = variant != null && variant.getPrice() != null
+                                        ? variant.getPrice()
+                                        : product.getBasePrice();
+
+                        // Check if item already exists in cart
+                        CartItem existingItem = null;
+                        if (cart.getItems() != null) {
+                                for (CartItem ci : cart.getItems()) {
+                                        Long vId = (ci.getVariant() != null ? ci.getVariant().getId() : null);
+                                        Long reqVId = (variant != null ? variant.getId() : null);
+
+                                        if (ci.getProduct().getId().equals(product.getId())
+                                                        && java.util.Objects.equals(vId, reqVId)) {
+                                                existingItem = ci;
+                                                break;
+                                        }
+                                }
+                        }
+
+                        LocalDateTime now = LocalDateTime.now();
+
+                        if (existingItem != null) {
+                                int newQty = existingItem.getQuantity() + quantity;
+                                existingItem.setQuantity(newQty);
+                                existingItem.setUnitPrice(unitPrice);
+                                existingItem.setTotalPrice(unitPrice * newQty);
+                                existingItem.setUpdatedAt(now);
+                        } else {
+                                CartItem newItem = CartItem.builder()
+                                                .cart(cart)
+                                                .product(product)
+                                                .variant(variant)
+                                                .quantity(quantity)
+                                                .unitPrice(unitPrice)
+                                                .totalPrice(unitPrice * quantity)
+                                                .createdAt(now)
+                                                .updatedAt(now)
+                                                .build();
+
+                                cart.getItems().add(newItem);
+                        }
+                }
+
+                // Save cart
+                cart.setUpdatedAt(LocalDateTime.now());
+                cart = cartRepository.save(cart);
+
+                log.info("Reorder completed: orderId={}, userId={}, items added", orderId, userId);
+
+                // Build response
+                java.util.List<com.example.MyWeb.dto.cart.CartItemResponse> itemDtos = cart.getItems() != null
+                                ? cart.getItems().stream()
+                                                .map(this::toCartItemDto)
+                                                .collect(java.util.stream.Collectors.toList())
+                                : new java.util.ArrayList<>();
+
+                double total = itemDtos.stream()
+                                .mapToDouble(com.example.MyWeb.dto.cart.CartItemResponse::getTotalPrice)
+                                .sum();
+
+                return com.example.MyWeb.dto.cart.CartResponse.builder()
+                                .id(cart.getId())
+                                .items(itemDtos)
+                                .totalItems(itemDtos.size())
+                                .totalAmount(total)
+                                .build();
+        }
+
+        private com.example.MyWeb.dto.cart.CartItemResponse toCartItemDto(CartItem item) {
+                Product p = item.getProduct();
+                ProductVariant v = item.getVariant();
+
+                return com.example.MyWeb.dto.cart.CartItemResponse.builder()
+                                .id(item.getId())
+                                .productId(p.getId())
+                                .productName(p.getName())
+                                .productSlug(p.getSlug())
+                                .thumbnailUrl(p.getThumbnailUrl())
+                                .variantId(v != null ? v.getId() : null)
+                                .color(v != null ? v.getColor() : null)
+                                .size(v != null ? v.getSize() : null)
+                                .unitPrice(item.getUnitPrice())
+                                .quantity(item.getQuantity())
+                                .totalPrice(item.getTotalPrice())
+                                .build();
+        }
+
+        @Override
+        @Transactional
+        public OrderResponse approveReturn(Long orderId) {
+                Order order = orderRepository.findById(orderId)
+                                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId));
+
+                if (order.getStatus() != OrderStatus.RETURN_REQUESTED) {
+                        throw new RuntimeException("Order is not in RETURN_REQUESTED status");
+                }
+
+                // Return stock
+                for (OrderItem item : order.getItems()) {
+                        Product product = item.getProduct();
+                        ProductVariant variant = item.getVariant();
+                        int quantity = item.getQuantity();
+
+                        if (variant != null) {
+                                Integer currentStock = variant.getStock() != null ? variant.getStock() : 0;
+                                variant.setStock(currentStock + quantity);
+                                productVariantRepository.save(variant);
+                        } else {
+                                stockService.increaseStock(product.getId(), quantity);
+                        }
+                }
+
+                order.setStatus(OrderStatus.RETURNED);
+                order.setUpdatedAt(LocalDateTime.now());
+                orderRepository.save(order);
+
+                log.info("Order return approved and stock returned: orderId={}", orderId);
+                return toOrderDto(order);
+        }
+
+        @Override
+        @Transactional
+        public OrderResponse updateOrderStatus(Long orderId, String newStatus) {
+                Order order = orderRepository.findById(orderId)
+                                .orElseThrow(() -> new RuntimeException("Order not found"));
+
+                OrderStatus status;
+                try {
+                        status = OrderStatus.valueOf(newStatus);
+                } catch (IllegalArgumentException e) {
+                        throw new RuntimeException("Invalid order status: " + newStatus);
+                }
+
+                // If status is CANCELLED or RETURNED from admin panel, we should handle stock
+                // return
+                // Reuse cancel/return logic?
+                // Best practice: if admin sets CANCELLED, treat it as cancelling order.
+                if (status == OrderStatus.CANCELED) {
+                        if (order.getStatus() != OrderStatus.CANCELED && order.getStatus() != OrderStatus.RETURNED) {
+                                // Only return stock if not already cancelled/returned
+                                return cancelOrder(order.getUser().getId(), orderId); // Admin acts on behalf of user?
+                                // Check cancelOrder impl: it requires userId and checks ownership?
+                                // Our cancelOrder checks: findByIdAndUser_Id -> This will fail if we pass admin
+                                // id or random id.
+                                // So we must duplicate stock return logic here or refactor.
+                                // Let's duplicate tiny logic for safety and speed.
+
+                                // Logic below...
+                        }
+                }
+
+                // If Admin manually sets status, we assume they know what they are doing.
+                // Exception: CANCELED/RETURNED should return stock.
+                if ((status == OrderStatus.CANCELED || status == OrderStatus.RETURNED) &&
+                                (order.getStatus() != OrderStatus.CANCELED
+                                                && order.getStatus() != OrderStatus.RETURNED)) {
+
+                        // Return stock
+                        for (OrderItem item : order.getItems()) {
+                                Product product = item.getProduct();
+                                ProductVariant variant = item.getVariant();
+                                int quantity = item.getQuantity();
+
+                                if (variant != null) {
+                                        Integer currentStock = variant.getStock() != null ? variant.getStock() : 0;
+                                        variant.setStock(currentStock + quantity);
+                                        productVariantRepository.save(variant);
+                                } else {
+                                        stockService.increaseStock(product.getId(), quantity);
+                                }
+                        }
+                }
+
+                order.setStatus(status);
+                order.setUpdatedAt(LocalDateTime.now());
+                orderRepository.save(order);
                 return toOrderDto(order);
         }
 }

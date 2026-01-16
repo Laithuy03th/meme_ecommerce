@@ -44,6 +44,33 @@ public class Product {
     @Column(name = "thumbnail_url")
     private String thumbnailUrl;
 
+    @Column(name = "brand", length = 100)
+    private String brand;
+
+    @Column(name = "average_rating")
+    private Double averageRating; // Điểm đánh giá trung bình (VD: 4.5)
+
+    @Column(name = "review_count")
+    private Integer reviewCount = 0; // Số lượng đánh giá
+
+    @Column(name = "sold_count")
+    private Integer soldCount = 0; // Số lượng đã bán (for best sellers)
+
+    @Column(name = "view_count")
+    private Integer viewCount = 0; // Lượt xem (for analytics)
+
+    @Column(name = "sku", length = 50, unique = true)
+    private String sku; // Stock Keeping Unit
+
+    @Column(name = "weight")
+    private Double weight; // Khối lượng (kg) - for shipping calculation
+
+    @Column(name = "is_featured")
+    private Boolean isFeatured = false; // Sản phẩm nổi bật
+
+    @Column(name = "video_url")
+    private String videoUrl; // URL video giới thiệu sản phẩm
+
     @Column(nullable = false)
     private String status = "ACTIVE"; // ACTIVE / INACTIVE / DRAFT
 

@@ -230,10 +230,14 @@ components:
       properties:
         accessToken:
           type: string
-          description: JWT access token (expires in 15 minutes)
+          description: JWT access token (expires in 15 minutes) - use in Authorization header
         refreshToken:
           type: string
-          description: JWT refresh token (expires in 7 days)
+          nullable: true
+          description: | 
+            JWT refresh token - WILL BE NULL in response!
+            Actual refresh token is stored in HttpOnly cookie for security (XSS protection).
+            Frontend should NOT store this value.
         tokenType:
           type: string
           default: Bearer
@@ -241,7 +245,7 @@ components:
           $ref: '#/components/schemas/UserResponse'
       example:
         accessToken: "eyJhbGciOiJIUzUxMiJ9..."
-        refreshToken: "eyJhbGciOiJIUzUxMiJ9..."
+        refreshToken: null
         tokenType: "Bearer"
         user:
           id: 1
@@ -668,14 +672,21 @@ components:
     # ---- Orders ----
     CheckoutRequest:
       type: object
-      required: [addressId, paymentMethod]
+      required: [addressId, paymentMethod, shippingMethodId]
       properties:
         addressId:
           type: integer
           format: int64
+        shippingMethodId:
+          type: integer
+          format: int64
+          description: Selected shipping method (STANDARD or EXPRESS)
         paymentMethod:
           type: string
           enum: [COD, VNPAY, MOMO]
+        voucherCode:
+          type: string
+          description: Optional discount voucher code
         note:
           type: string
     OrderItemResponse:
@@ -1084,8 +1095,12 @@ components:
     # ---- Review ----
     ReviewRequest:
       type: object
-      required: [rating]
+      required: [orderItemId, rating]
       properties:
+        orderItemId:
+          type: integer
+          format: int64
+          description: Order item ID to link review with specific purchase (required for verification)
         rating:
           type: integer
           minimum: 1
@@ -1101,20 +1116,50 @@ components:
         id:
           type: integer
           format: int64
+        userId:
+          type: integer
+          format: int64
+        username:
+          type: string
         userFullName:
           type: string
+          description: Kept for backward compatibility
+        productId:
+          type: integer
+          format: int64
         rating:
           type: integer
         comment:
           type: string
         imageUrl:
           type: string
+        # Edit tracking (Shopee-level feature)
+        editCount:
+          type: integer
+          description: Number of times review has been edited (max 2)
+        isEdited:
+          type: boolean
+          description: Whether review has been edited
+        # Purchase verification
+        orderId:
+          type: integer
+          format: int64
+          nullable: true
+        orderNumber:
+          type: string
+          nullable: true
+        verifiedPurchase:
+          type: boolean
+          description: True if user actually purchased this product (Verified Purchase badge)
         adminReply:
           type: string
         adminRepliedAt:
           type: string
           format: date-time
         createdAt:
+          type: string
+          format: date-time
+        updatedAt:
           type: string
           format: date-time
 
@@ -1346,6 +1391,16 @@ components:
           format: date-time
         usageLimit:
           type: integer
+        usageLimitPerUser:
+          type: integer
+        freeShipping:
+          type: boolean
+        maxShippingDiscount:
+          type: number
+          format: double
+        applicableCategoryIds:
+          type: string
+          description: "Comma separated category IDs, e.g. '1,2,3'"
 
     VoucherResponse:
       type: object
@@ -1378,6 +1433,15 @@ components:
           type: integer
         isActive:
           type: boolean
+        usageLimitPerUser:
+          type: integer
+        freeShipping:
+          type: boolean
+        maxShippingDiscount:
+          type: number
+          format: double
+        applicableCategoryIds:
+          type: string
 
 
 
@@ -1426,6 +1490,10 @@ paths:
         - "CLIENT - Authentication"
       security: []
       summary: Login with email and password
+      description: |
+        Authenticates user and returns access token in response body.
+        **Security**: Refresh token is stored in HttpOnly cookie (not in response).
+        Frontend must use `credentials: 'include'` in fetch to receive cookies.
       requestBody:
         required: true
         content:
@@ -1434,7 +1502,14 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Login successful
+          description: |
+            Login successful. 
+            Access token in body, refresh token in HttpOnly cookie.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: refreshToken=eyJhbGci...; Path=/; HttpOnly; Max-Age=604800
           content:
             application/json:
               schema:
@@ -1447,36 +1522,43 @@ paths:
       tags:
         - "CLIENT - Authentication"
       security: []
-      summary: Refresh access token using refresh token
+      summary: Refresh access token using refresh token from HttpOnly cookie
       description: |
-        Get a new access token and refresh token pair using a valid refresh token.
-        Access token expires in 15 minutes, refresh token expires in 7 days.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshTokenRequest'
-            example:
-              refreshToken: "eyJhbGciOiJIUzUxMiJ9..."
+        Get new access token and refresh token pair.
+        **Important**: Refresh token comes from HttpOnly cookie, NOT request body!
+        Frontend must use `credentials: 'include'` to send cookies.
+        Token rotation: old refresh token is invalidated, new one is set in cookie.
       responses:
         '200':
           description: Token refreshed successfully
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: refreshToken=eyJhbGci...; Path=/; HttpOnly; Max-Age=604800
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoginResponse'
         '401':
-          description: Invalid or expired refresh token
+          description: Invalid or expired refresh token in cookie
 
   /api/v1/auth/logout:
     post:
       tags:
         - "CLIENT - Authentication"
-      summary: Logout and blacklist current token
+      summary: Logout, blacklist token, and delete refresh token cookie
+      description: |
+        Blacklists current access token and deletes refresh token cookie.
+        Frontend must use `credentials: 'include'` for cookie deletion.
       responses:
         '204':
           description: Logged out successfully
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: refreshToken=; Path=/; HttpOnly; Max-Age=0
 
   /api/v1/auth/forgot-password:
     post:
@@ -2535,6 +2617,41 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/products/reviews/{reviewId}/me:
+    put:
+      tags:
+        - "CLIENT - Reviews"
+      summary: Update own review (max 2 edits allowed - Shopee rule)
+      description: |
+        Edit your own review. Maximum 2 edits allowed per review.
+        Must be the review owner.
+      parameters:
+        - in: path
+          name: reviewId
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewRequest'
+      responses:
+        '200':
+          description: Review updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewResponse'
+        '400':
+          description: Maximum edit limit reached (2 times)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Not your review
+        '404':
+          description: Review not found
     delete:
       tags:
         - "CLIENT - Reviews"
@@ -3057,6 +3174,345 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           description: Order not found
+
+
+  # ---- Re-order (NEW) ----
+  /api/v1/users/me/orders/{orderId}/reorder:
+    post:
+      tags:
+        - "CLIENT - Orders"
+      summary: Re-order - add all items from old order to cart
+      description: |
+        One-click re-purchase feature (Shopee-level).
+        Adds all items from previous order to cart with stock validation.
+        Out-of-stock items are skipped with warning.
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: ID of the order to re-order
+      responses:
+        '200':
+          description: Items added to cart successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Order not found or not your order
+
+
+  # ---- Admin Orders ----
+  /api/v1/admin/orders/{id}/return/approve:
+    put:
+      tags:
+        - "ADMIN - Order Management"
+      summary: Approve return request (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Return approved, stock replenished
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/orders/{id}/status:
+    put:
+      tags:
+        - "ADMIN - Order Management"
+      summary: Update order status (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateOrderStatusRequest' }
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Admin Reviews ----
+  /api/v1/admin/reviews:
+    get:
+      tags:
+        - "ADMIN - Review Moderation"
+      summary: Get all reviews (ADMIN)
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 0 }
+        - in: query
+          name: size
+          schema: { type: integer, default: 20 }
+        - in: query
+          name: rating
+          schema: { type: integer }
+          description: Optional rating filter (1-5)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page_AdminProductResponse' # Reuse page wrapper structure or similar
+
+  /api/v1/admin/reviews/{id}/visibility:
+    put:
+      tags:
+        - "ADMIN - Review Moderation"
+      summary: Toggle review visibility (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+        - in: query
+          name: visible
+          required: true
+          schema: { type: boolean }
+      responses:
+        '204': { description: No Content }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Admin Vouchers ----
+  /api/v1/admin/vouchers/{id}:
+    get:
+      tags:
+        - "ADMIN - Voucher Management"
+      summary: Get voucher by ID (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoucherResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags:
+        - "ADMIN - Voucher Management"
+      summary: Update voucher (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VoucherRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoucherResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags:
+        - "ADMIN - Voucher Management"
+      summary: Delete voucher (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204': { description: No Content }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/vouchers/{id}/toggle:
+    patch:
+      tags:
+        - "ADMIN - Voucher Management"
+      summary: Toggle voucher active status (ADMIN)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: Toggled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VoucherResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---- Chatbot (AI) ----
+  /api/chatbot/message:
+    post:
+      tags:
+        - "Chatbot"
+      summary: Send message to AI Chatbot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, example: "tim ao thun" }
+                sessionId: { type: string, example: "uuid-1234" }
+                userId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: AI Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response: { type: string }
+                  intent: { type: string }
+                  sessionId: { type: string }
+                  data: { type: object }
+                  requiresAuth: { type: boolean }
+                  quickReplies:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label: { type: string }
+                        value: { type: string }
+                        icon: { type: string }
+
+  /api/chatbot/history/{sessionId}:
+    get:
+      tags:
+        - "Chatbot"
+      summary: Get chat history
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Chat history list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties: # Same as ChatResponse
+                    response: { type: string }
+                    intent: { type: string }
+  
+  /api/chatbot/suggestions:
+    get:
+      tags:
+        - "Chatbot"
+      summary: Get quick start suggestions
+      responses:
+        '200':
+          description: List of suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+
+  /api/chatbot/init:
+    post:
+      tags:
+        - "Chatbot"
+      summary: Initialize Knowledge Base (Admin)
+      responses:
+        '200': { description: Initialized }
+
+  # ---- VNPay Specific ----
+  /api/v1/payments/vnpay/initiate:
+    post:
+      tags:
+        - "CLIENT - Payments"
+      summary: Initiate VNPay specific payment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, amount, returnUrl]
+              properties:
+                orderId: { type: integer, format: int64 }
+                amount: { type: integer, format: int64 }
+                returnUrl: { type: string }
+                ipnUrl: { type: string }
+                orderInfo: { type: string }
+                locale: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paymentUrl: { type: string }
+                  txnRef: { type: string }
+
+  /api/v1/payments/vnpay-return:
+    get:
+      tags:
+        - "CLIENT - Payments"
+      summary: VNPay Redirect Return
+      description: Handle redirect from VNPay (browser)
+      parameters:
+        - in: query
+          name: vnp_TxnRef
+          schema: { type: string }
+        - in: query
+          name: vnp_ResponseCode
+          schema: { type: string }
+        # ... other vnp params
+      responses:
+        '302':
+          description: Redirects to Frontend Result Page
+
+  /api/v1/payments/vnpay-ipn:
+    get:
+      tags:
+        - "CLIENT - Payments"
+      summary: VNPay IPN (Server-to-Server)
+      parameters:
+        - in: query
+          name: vnp_TxnRef
+          schema: { type: string }
+      responses:
+        '200':
+          description: IPN Processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  RspCode: { type: string }
+                  Message: { type: string }
 
 
 

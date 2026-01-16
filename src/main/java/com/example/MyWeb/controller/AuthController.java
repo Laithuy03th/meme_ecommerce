@@ -8,8 +8,11 @@ import com.example.MyWeb.dto.auth.RegisterRequest;
 import com.example.MyWeb.dto.auth.ResetPasswordRequest;
 import com.example.MyWeb.dto.user.UserResponse;
 import com.example.MyWeb.service.AuthService;
+import com.example.MyWeb.util.CookieUtil;
 
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -30,9 +33,25 @@ public class AuthController {
         return ResponseEntity.ok(user);
     }
 
+    /**
+     * Login endpoint
+     * Returns access token in response body
+     * Stores refresh token in HttpOnly cookie for security (XSS protection)
+     */
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<LoginResponse> login(
+            @Valid @RequestBody LoginRequest request,
+            HttpServletResponse response) {
+
         LoginResponse res = authService.login(request);
+
+        // Store refresh token in HttpOnly cookie (secure against XSS)
+        Cookie refreshTokenCookie = CookieUtil.createRefreshTokenCookie(res.getRefreshToken());
+        response.addCookie(refreshTokenCookie);
+
+        // Remove refresh token from response body for security
+        res.setRefreshToken(null);
+
         return ResponseEntity.ok(res);
     }
 
@@ -58,21 +77,57 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Logout endpoint
+     * Blacklists access token and deletes refresh token cookie
+     */
     @PostMapping("/logout")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Void> logout(HttpServletRequest request) {
+    public ResponseEntity<Void> logout(
+            HttpServletRequest request,
+            HttpServletResponse response) {
+
+        // Blacklist access token
         String auth = request.getHeader("Authorization");
         if (auth != null && auth.startsWith("Bearer ")) {
             String token = auth.substring(7);
             authService.logout(token);
         }
+
+        // Delete refresh token cookie
+        Cookie deleteCookie = CookieUtil.deleteRefreshTokenCookie();
+        response.addCookie(deleteCookie);
+
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Refresh token endpoint
+     * Gets refresh token from HttpOnly cookie (not request body)
+     * Returns new access token and sets new refresh token in cookie
+     */
     @PostMapping("/refresh")
     public ResponseEntity<LoginResponse> refreshToken(
-            @Valid @RequestBody com.example.MyWeb.dto.auth.RefreshTokenRequest request) {
-        LoginResponse response = authService.refreshToken(request.getRefreshToken());
-        return ResponseEntity.ok(response);
+            HttpServletRequest request,
+            HttpServletResponse response) {
+
+        // Get refresh token from HttpOnly cookie
+        String refreshToken = CookieUtil.getRefreshTokenFromCookies(request.getCookies());
+
+        if (refreshToken == null || refreshToken.isEmpty()) {
+            throw new RuntimeException("Refresh token not found in cookies. Please login again.");
+        }
+
+        // Generate new tokens
+        LoginResponse loginResponse = authService.refreshToken(refreshToken);
+
+        // Set new refresh token in HttpOnly cookie (token rotation)
+        Cookie newRefreshTokenCookie = CookieUtil.createRefreshTokenCookie(loginResponse.getRefreshToken());
+        response.addCookie(newRefreshTokenCookie);
+
+        // Remove refresh token from response body
+        loginResponse.setRefreshToken(null);
+
+        return ResponseEntity.ok(loginResponse);
     }
 }

@@ -64,4 +64,14 @@ public class OrderController {
         Long userId = getCurrentUserId();
         return ResponseEntity.ok(orderService.requestReturn(userId, orderId, request.getReason()));
     }
+
+    /**
+     * POST /api/v1/users/me/orders/{orderId}/reorder
+     * Re-order: Add all items from old order to cart for quick re-purchase
+     */
+    @PostMapping("/{orderId}/reorder")
+    public ResponseEntity<com.example.MyWeb.dto.cart.CartResponse> reorder(@PathVariable Long orderId) {
+        Long userId = getCurrentUserId();
+        return ResponseEntity.ok(orderService.reorder(userId, orderId));
+    }
 }

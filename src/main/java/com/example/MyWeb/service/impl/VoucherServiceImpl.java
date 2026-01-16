@@ -41,6 +41,11 @@ public class VoucherServiceImpl implements VoucherService {
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
                 .usageLimit(request.getUsageLimit())
+                // New fields
+                .usageLimitPerUser(request.getUsageLimitPerUser())
+                .freeShipping(request.getFreeShipping())
+                .maxShippingDiscount(request.getMaxShippingDiscount())
+                .applicableCategoryIds(request.getApplicableCategoryIds())
                 .build();
 
         voucher = voucherRepository.save(voucher);
@@ -110,6 +115,90 @@ public class VoucherServiceImpl implements VoucherService {
                 .usageLimit(voucher.getUsageLimit())
                 .usedCount(voucher.getUsedCount())
                 .isActive(voucher.getIsActive())
+
+                // New fields
+                .usageLimitPerUser(voucher.getUsageLimitPerUser())
+                .freeShipping(voucher.getFreeShipping())
+                .maxShippingDiscount(voucher.getMaxShippingDiscount())
+                .applicableCategoryIds(voucher.getApplicableCategoryIds())
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<VoucherResponse> getAllVouchers(int page, int size) {
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(page, size,
+                org.springframework.data.domain.Sort.by("createdAt").descending());
+        return voucherRepository.findAll(pageable).map(this::toDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public VoucherResponse getVoucherById(Long id) {
+        Voucher voucher = voucherRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Voucher not found with id: " + id));
+        return toDto(voucher);
+    }
+
+    @Override
+    @Transactional
+    public VoucherResponse updateVoucher(Long id, VoucherRequest request) {
+        Voucher voucher = voucherRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Voucher not found with id: " + id));
+
+        DiscountType discountType;
+        try {
+            discountType = DiscountType.valueOf(request.getDiscountType().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Invalid discount type. Must be PERCENT or AMOUNT");
+        }
+
+        voucher.setDiscountType(discountType);
+        voucher.setDiscountValue(request.getDiscountValue());
+        voucher.setMinOrderAmount(request.getMinOrderAmount());
+        voucher.setMaxDiscountAmount(request.getMaxDiscountAmount());
+        voucher.setStartDate(request.getStartDate());
+        voucher.setEndDate(request.getEndDate());
+        voucher.setUsageLimit(request.getUsageLimit());
+
+        // New fields update
+        voucher.setUsageLimitPerUser(request.getUsageLimitPerUser());
+        voucher.setFreeShipping(request.getFreeShipping());
+        voucher.setMaxShippingDiscount(request.getMaxShippingDiscount());
+        voucher.setApplicableCategoryIds(request.getApplicableCategoryIds());
+
+        voucher = voucherRepository.save(voucher);
+        return toDto(voucher);
+    }
+
+    @Override
+    @Transactional
+    public void deleteVoucher(Long id) {
+        Voucher voucher = voucherRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Voucher not found with id: " + id));
+        voucherRepository.delete(voucher);
+    }
+
+    @Override
+    @Transactional
+    public VoucherResponse toggleVoucher(Long id) {
+        Voucher voucher = voucherRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Voucher not found with id: " + id));
+        voucher.setIsActive(!voucher.getIsActive());
+        voucher = voucherRepository.save(voucher);
+        return toDto(voucher);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<VoucherResponse> getActiveVouchers() {
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        return voucherRepository.findAll().stream()
+                .filter(v -> v.getIsActive())
+                .filter(v -> v.getStartDate() == null || !now.isBefore(v.getStartDate()))
+                .filter(v -> v.getEndDate() == null || !now.isAfter(v.getEndDate()))
+                .filter(v -> v.getUsageLimit() == null || v.getUsedCount() < v.getUsageLimit())
+                .map(this::toDto)
+                .collect(java.util.stream.Collectors.toList());
     }
 }

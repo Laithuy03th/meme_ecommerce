@@ -16,4 +16,14 @@ public interface ReviewService {
     void deleteReviewByUser(Long userId, Long reviewId);
 
     ReviewResponse replyToReview(Long reviewId, String reply);
+
+    /**
+     * Update review (max 2 edits allowed - Shopee rule)
+     */
+    ReviewResponse updateReview(Long userId, Long reviewId, ReviewRequest request);
+
+    // Admin methods
+    org.springframework.data.domain.Page<ReviewResponse> getAllReviews(int page, int size, Integer rating);
+
+    void toggleReviewVisibility(Long reviewId, boolean isVisible);
 }

@@ -15,4 +15,15 @@ public interface OrderService {
     OrderResponse cancelOrder(Long userId, Long orderId);
 
     OrderResponse requestReturn(Long userId, Long orderId, String reason);
+
+    /**
+     * Re-order: Add all items from an old order to cart
+     * Shopee-level feature for quick re-purchase
+     */
+    com.example.MyWeb.dto.cart.CartResponse reorder(Long userId, Long orderId);
+
+    // Admin methods
+    OrderResponse approveReturn(Long orderId);
+
+    OrderResponse updateOrderStatus(Long orderId, String newStatus);
 }
