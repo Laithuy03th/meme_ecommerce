@@ -31,11 +31,24 @@ public class CookieUtil {
      * Create HttpOnly cookie for refresh token with custom max age
      */
     public static Cookie createRefreshTokenCookie(String refreshToken, int maxAge) {
+        return createRefreshTokenCookie(refreshToken, maxAge, "/");
+    }
+
+    /**
+     * Create HttpOnly cookie for refresh token with custom path
+     * Used to isolate admin and client cookies on localhost
+     * 
+     * @param refreshToken The JWT refresh token
+     * @param maxAge       Cookie lifetime in seconds
+     * @param path         Cookie path (e.g., "/admin" or "/")
+     * @return Cookie object configured for security
+     */
+    public static Cookie createRefreshTokenCookie(String refreshToken, int maxAge, String path) {
         Cookie cookie = new Cookie(REFRESH_TOKEN_COOKIE, refreshToken);
 
         cookie.setHttpOnly(true); // Cannot be accessed by JavaScript - XSS protection
         cookie.setSecure(false); // Set to true in production (HTTPS only) // TODO: change to true for production
-        cookie.setPath("/"); // Available for entire application
+        cookie.setPath(path); // Custom path for cookie isolation
         cookie.setMaxAge(maxAge); // 7 days by default
         // SameSite attribute for CSRF protection (requires Servlet 6.0+)
         // cookie.setAttribute("SameSite", "Strict");
@@ -68,10 +81,17 @@ public class CookieUtil {
      * Delete refresh token cookie by setting maxAge to 0
      */
     public static Cookie deleteRefreshTokenCookie() {
+        return deleteRefreshTokenCookie("/");
+    }
+
+    /**
+     * Delete refresh token cookie with custom path
+     */
+    public static Cookie deleteRefreshTokenCookie(String path) {
         Cookie cookie = new Cookie(REFRESH_TOKEN_COOKIE, null);
         cookie.setHttpOnly(true);
         cookie.setSecure(false); // Match creation settings
-        cookie.setPath("/");
+        cookie.setPath(path);
         cookie.setMaxAge(0); // Delete immediately
 
         return cookie;

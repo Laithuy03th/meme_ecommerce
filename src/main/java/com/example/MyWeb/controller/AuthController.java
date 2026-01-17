@@ -45,8 +45,16 @@ public class AuthController {
 
         LoginResponse res = authService.login(request);
 
+        // Determine cookie path based on user roles
+        // Admin users get cookies with path="/admin" to isolate from client app
+        boolean isAdmin = res.getUser().getRoles().contains("ADMIN");
+        String cookiePath = isAdmin ? "/admin" : "/";
+
         // Store refresh token in HttpOnly cookie (secure against XSS)
-        Cookie refreshTokenCookie = CookieUtil.createRefreshTokenCookie(res.getRefreshToken());
+        Cookie refreshTokenCookie = CookieUtil.createRefreshTokenCookie(
+                res.getRefreshToken(),
+                7 * 24 * 60 * 60, // 7 days
+                cookiePath);
         response.addCookie(refreshTokenCookie);
 
         // Remove refresh token from response body for security
@@ -94,9 +102,13 @@ public class AuthController {
             authService.logout(token);
         }
 
-        // Delete refresh token cookie
-        Cookie deleteCookie = CookieUtil.deleteRefreshTokenCookie();
-        response.addCookie(deleteCookie);
+        // Delete refresh token cookies from BOTH paths to ensure clean logout
+        // This handles cases where user might have logged in from either admin or
+        // client
+        Cookie deleteClientCookie = CookieUtil.deleteRefreshTokenCookie("/");
+        Cookie deleteAdminCookie = CookieUtil.deleteRefreshTokenCookie("/admin");
+        response.addCookie(deleteClientCookie);
+        response.addCookie(deleteAdminCookie);
 
         return ResponseEntity.noContent().build();
     }
@@ -121,8 +133,15 @@ public class AuthController {
         // Generate new tokens
         LoginResponse loginResponse = authService.refreshToken(refreshToken);
 
+        // Determine cookie path based on user roles (same logic as login)
+        boolean isAdmin = loginResponse.getUser().getRoles().contains("ADMIN");
+        String cookiePath = isAdmin ? "/admin" : "/";
+
         // Set new refresh token in HttpOnly cookie (token rotation)
-        Cookie newRefreshTokenCookie = CookieUtil.createRefreshTokenCookie(loginResponse.getRefreshToken());
+        Cookie newRefreshTokenCookie = CookieUtil.createRefreshTokenCookie(
+                loginResponse.getRefreshToken(),
+                7 * 24 * 60 * 60, // 7 days
+                cookiePath);
         response.addCookie(newRefreshTokenCookie);
 
         // Remove refresh token from response body
