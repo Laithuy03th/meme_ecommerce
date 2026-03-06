@@ -385,6 +385,7 @@ public class OrderServiceImpl implements OrderService {
                                 .stream()
                                 .map(item -> com.example.MyWeb.dto.order.OrderDetailResponse.OrderItemDto.builder()
                                                 .id(item.getId())
+                                                .productId(item.getProduct().getId())
                                                 .productName(item.getProductName())
                                                 .productImageUrl(item.getProduct().getThumbnailUrl())
                                                 .variantInfo(item.getVariant() != null

@@ -40,6 +40,7 @@ public class OrderDetailResponse {
     @NoArgsConstructor
     public static class OrderItemDto {
         private Long id;
+        private Long productId;
         private String productName;
         private String productImageUrl;
         private String variantInfo;
