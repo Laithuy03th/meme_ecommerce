@@ -42,16 +42,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 System.out.println("JwtAuthenticationFilter: User loaded: " + userDetails.getUsername()
                         + ", Authorities: " + userDetails.getAuthorities());
 
-                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        userDetails,
-                        null,
-                        userDetails.getAuthorities());
+                // LỖ HỔNG: Phải chặn những user vừa bị khóa tài khoản bởi Admin
+                if (!userDetails.isEnabled() || !userDetails.isAccountNonLocked()) {
+                    System.out.println(
+                            "JwtAuthenticationFilter: BANNED/DISABLED user attempted to access API -> Blocked");
+                } else {
+                    UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                            userDetails,
+                            null,
+                            userDetails.getAuthorities());
 
-                authToken.setDetails(
-                        new WebAuthenticationDetailsSource().buildDetails(request));
+                    authToken.setDetails(
+                            new WebAuthenticationDetailsSource().buildDetails(request));
 
-                SecurityContextHolder.getContext().setAuthentication(authToken);
-                System.out.println("JwtAuthenticationFilter: Authentication set in SecurityContext");
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                    System.out.println("JwtAuthenticationFilter: Authentication set in SecurityContext");
+                }
             } else {
                 System.out.println("JwtAuthenticationFilter: Token is invalid");
             }

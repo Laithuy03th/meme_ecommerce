@@ -1,31 +1,29 @@
 package com.example.MyWeb.security;
 
-import org.springframework.stereotype.Component;
+import com.example.MyWeb.model.BlacklistedToken;
+import com.example.MyWeb.repository.BlacklistedTokenRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 
-/**
- * Demo in-memory blacklist. Sản xuất nên dùng Redis.
- */
-@Component
+@Service
+@RequiredArgsConstructor
 public class JwtBlacklistService {
 
-    private final Map<String, Long> blacklist = new ConcurrentHashMap<>();
+    private final BlacklistedTokenRepository repository;
 
     public void blacklist(String token, long expEpochSeconds) {
-        blacklist.put(token, expEpochSeconds);
+        LocalDateTime expiresAt = LocalDateTime.ofInstant(Instant.ofEpochSecond(expEpochSeconds),
+                ZoneId.systemDefault());
+        repository.save(new BlacklistedToken(token, expiresAt));
     }
 
     public boolean isBlacklisted(String token) {
-        Long exp = blacklist.get(token);
-        if (exp == null)
-            return false;
-        if (Instant.now().getEpochSecond() > exp) {
-            blacklist.remove(token);
-            return false;
-        }
-        return true;
+        return repository.findById(token)
+                .map(t -> t.getExpiresAt().isAfter(LocalDateTime.now()))
+                .orElse(false);
     }
 }

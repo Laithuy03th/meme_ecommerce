@@ -53,6 +53,10 @@ public class AuthServiceImpl implements AuthService {
         private final PasswordResetTokenRepository passwordResetTokenRepository;
         private final JwtBlacklistService jwtBlacklistService;
         private final EmailService emailService; // Inject EmailService
+        private final com.example.MyWeb.repository.RefreshTokenRepository refreshTokenRepository;
+
+        @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
+        private String frontendUrl;
 
         @Override
         public UserResponse register(RegisterRequest request) {
@@ -133,6 +137,16 @@ public class AuthServiceImpl implements AuthService {
 
                 String refreshToken = jwtService.generateRefreshToken(user.getEmail());
 
+                // L4. Lưu Refresh Token vào Database để kiểm soát vòng đời
+                com.example.MyWeb.model.RefreshToken rt = com.example.MyWeb.model.RefreshToken.builder()
+                                .user(user)
+                                .tokenHash(refreshToken)
+                                .expiresAt(java.time.LocalDateTime.now().plusDays(7))
+                                .createdAt(java.time.LocalDateTime.now())
+                                .revoked(false)
+                                .build();
+                refreshTokenRepository.save(rt);
+
                 UserResponse userResponse = toUserResponse(user, profile);
 
                 return LoginResponse.builder()
@@ -144,9 +158,14 @@ public class AuthServiceImpl implements AuthService {
 
         // Forgot password: sinh token reset, lưu DB, gửi email
         @Override
+        @Transactional
         public void forgotPassword(ForgotPasswordRequest req) {
                 User user = userRepository.findByEmail(req.getEmail())
                                 .orElseThrow(() -> new RuntimeException("Email not found"));
+
+                // L2. Xóa các token cũ của user trước khi tạo token mới (tránh spam tạo quá
+                // nhiều token)
+                passwordResetTokenRepository.deleteByUser(user);
 
                 String token = java.util.UUID.randomUUID().toString();
                 PasswordResetToken prt = PasswordResetToken.builder()
@@ -157,15 +176,13 @@ public class AuthServiceImpl implements AuthService {
                                 .build();
                 passwordResetTokenRepository.save(prt);
 
-                // Gửi email
-                String resetLink = "http://localhost:3000/reset-password?token=" + token;
+                // L3 + L1. Gửi email với URL từ config, xóa dòng in token ra console
+                String resetLink = frontendUrl + "/reset-password?token=" + token;
                 String subject = "Reset Password Request";
                 String content = "Click the link below to reset your password:\n" + resetLink
                                 + "\n\nThis link expires in 30 minutes.";
 
                 emailService.sendSimpleMessage(user.getEmail(), subject, content);
-
-                System.out.println("RESET TOKEN for " + user.getEmail() + ": " + token);
         }
 
         // Reset password bằng token
@@ -201,9 +218,16 @@ public class AuthServiceImpl implements AuthService {
 
         // Logout: đưa token hiện tại vào blacklist
         @Override
+        @Transactional
         public void logout(String token) {
                 long exp = jwtService.getExpirationEpochSeconds(token); // implement hàm này trong JwtService
                 jwtBlacklistService.blacklist(token, exp);
+
+                // L4. Xóa toàn bộ refresh token khi user logout
+                String email = jwtService.getSubjectFromToken(token);
+                userRepository.findByEmail(email).ifPresent(user -> {
+                        refreshTokenRepository.deleteByUser(user);
+                });
         }
 
         // Refresh Token: tạo access token mới từ refresh token
@@ -215,12 +239,28 @@ public class AuthServiceImpl implements AuthService {
                         throw new RuntimeException("Invalid or expired refresh token");
                 }
 
+                // L4. Kiểm tra Refresh Token trong DB
+                com.example.MyWeb.model.RefreshToken rt = refreshTokenRepository.findByTokenHash(refreshToken)
+                                .orElseThrow(() -> new RuntimeException(
+                                                "Refresh token not found in DB or has been used/revoked"));
+
+                if (rt.getRevoked() || rt.getExpiresAt().isBefore(java.time.LocalDateTime.now())) {
+                        refreshTokenRepository.delete(rt);
+                        throw new RuntimeException("Refresh token revoked or expired");
+                }
+
                 // 2. Extract email from refresh token
                 String email = jwtService.getSubjectFromToken(refreshToken);
 
                 // 3. Lấy user từ DB
                 User user = userRepository.findByEmail(email)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
+
+                // LỖ HỔNG: Phải chặn user đã bị BAN/Khóa không cho phép lấy access token mới
+                if (user.getStatus() != UserStatus.ACTIVE) {
+                        refreshTokenRepository.delete(rt); // Thu hồi luôn token mồi
+                        throw new RuntimeException("User account is disabled or locked");
+                }
 
                 CustomerProfile profile = customerProfileRepository.findByUser(user)
                                 .orElse(null);
@@ -232,6 +272,19 @@ public class AuthServiceImpl implements AuthService {
 
                 // 5. Generate new refresh token (rotating refresh token strategy)
                 String newRefreshToken = jwtService.generateRefreshToken(user.getEmail());
+
+                // L4. ROTATION: Xóa Refresh Token cũ, lưu Refresh Token mới (tránh Replay
+                // Attack)
+                refreshTokenRepository.delete(rt);
+
+                com.example.MyWeb.model.RefreshToken newRt = com.example.MyWeb.model.RefreshToken.builder()
+                                .user(user)
+                                .tokenHash(newRefreshToken)
+                                .expiresAt(java.time.LocalDateTime.now().plusDays(7))
+                                .createdAt(java.time.LocalDateTime.now())
+                                .revoked(false)
+                                .build();
+                refreshTokenRepository.save(newRt);
 
                 UserResponse userResponse = toUserResponse(user, profile);
 

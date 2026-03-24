@@ -23,7 +23,7 @@ public class ProductVariant {
      * JPA tự động tăng version mỗi lần update.
      */
     @Version
-    @Column(name = "version", nullable = false)
+    @Column(name = "version", nullable = false, columnDefinition = "bigint default 0")
     private Long version = 0L;
 
     @ManyToOne(fetch = FetchType.LAZY)

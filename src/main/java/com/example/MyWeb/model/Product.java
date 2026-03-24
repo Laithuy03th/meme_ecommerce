@@ -25,7 +25,7 @@ public class Product {
      * lưu được. Transaction thứ 2 sẽ nhận ObjectOptimisticLockingFailureException.
      */
     @Version
-    @Column(name = "version", nullable = false)
+    @Column(name = "version", nullable = false, columnDefinition = "bigint default 0")
     private Long version = 0L;
 
     @Column(nullable = false, columnDefinition = "TEXT")
