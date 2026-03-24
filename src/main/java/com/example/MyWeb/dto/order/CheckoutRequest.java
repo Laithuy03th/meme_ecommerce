@@ -26,4 +26,14 @@ public class CheckoutRequest {
     // If null or empty, behavior defaults to "Buy All" (or throw error depending on
     // strictness)
     private java.util.List<Long> selectedCartItemIds;
+
+    /**
+     * [Tầng 3 - Idempotency] Key duy nhất cho mỗi lần bấm "Đặt hàng".
+     * Frontend sinh UUID trước khi hiển thị trang thanh toán.
+     * Nếu user bấm nhiều lần với cùng key → chỉ tạo 1 đơn hàng.
+     * Nếu để null → không áp dụng idempotency check (backward compatible).
+     *
+     * Ví dụ frontend: idempotencyKey = crypto.randomUUID()
+     */
+    private String idempotencyKey;
 }

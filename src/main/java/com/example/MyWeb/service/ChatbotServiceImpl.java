@@ -443,15 +443,13 @@ public class ChatbotServiceImpl implements ChatbotService {
     private ChatResponse handlePaymentInfo(ChatResponse.ChatResponseBuilder builder) {
         String response = "💳 **Phương thức thanh toán của MyWeb:**\n\n" +
                 "✅ **COD** - Thanh toán khi nhận hàng\n" +
-                "✅ **VNPay** - Thanh toán qua thẻ ATM/Visa/MasterCard\n" +
-                "✅ **Momo** - Ví điện tử Momo\n\n" +
-                "Tất cả đều an toàn và bảo mật 100%! 🔒";
+                "✅ **VNPay** - Thanh toán qua thẻ ATM/Visa/MasterCard/QR Code\n\n" +
+                "Tất cả đều an toàn và bảo mật! 🔒";
 
         return builder
                 .response(response)
                 .quickReplies(Arrays.asList(
                         QuickReply.builder().label("Hướng dẫn thanh toán VNPay").value("hướng dẫn vnpay").build(),
-                        QuickReply.builder().label("Hướng dẫn thanh toán Momo").value("hướng dẫn momo").build(),
                         QuickReply.builder().label("Thanh toán COD").value("cod là gì").build()))
                 .build();
     }

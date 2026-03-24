@@ -1,6 +1,5 @@
 package com.example.MyWeb.service.impl;
 
-import com.example.MyWeb.config.MomoConfig;
 import com.example.MyWeb.config.VNPayConfig;
 import com.example.MyWeb.dto.payment.PaymentCallbackRequest;
 import com.example.MyWeb.dto.payment.PaymentRequest;
@@ -13,7 +12,6 @@ import com.example.MyWeb.model.enums.PaymentMethod;
 import com.example.MyWeb.model.enums.PaymentStatus;
 import com.example.MyWeb.repository.OrderRepository;
 import com.example.MyWeb.repository.PaymentTransactionRepository;
-import com.example.MyWeb.service.MomoPaymentService;
 import com.example.MyWeb.service.PaymentService;
 import com.example.MyWeb.util.VNPayUtil;
 import lombok.RequiredArgsConstructor;
@@ -35,8 +33,6 @@ public class PaymentServiceImpl implements PaymentService {
     private final OrderRepository orderRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final VNPayConfig vnPayConfig;
-    private final MomoConfig momoConfig;
-    private final MomoPaymentService momoPaymentService;
 
     @Override
     @Transactional
@@ -90,16 +86,6 @@ public class PaymentServiceImpl implements PaymentService {
                     paymentUrl = generateVNPayUrl(order, request.getReturnUrl());
                     break;
 
-                case MOMO:
-                    log.info("Calling Momo API for order: {}", order.getId());
-                    String orderInfo = "Thanh toan don hang #" + order.getId();
-                    paymentUrl = momoPaymentService.createMomoPayment(
-                            order.getId(),
-                            order.getTotalAmount(),
-                            orderInfo,
-                            request.getReturnUrl());
-                    break;
-
                 default:
                     throw new PaymentException("Unsupported payment method: " + paymentMethod);
             }
@@ -131,8 +117,6 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional
     public PaymentResponse handlePaymentCallback(Long orderId, PaymentCallbackRequest callbackData) {
-        // Deprecated method, keeping for backward compatibility or direct calls
-        // In production, use handleVnPayCallback or handleMomoCallback
         return updatePaymentStatus(orderId,
                 "SUCCESS".equalsIgnoreCase(callbackData.getStatus()) || "00".equals(callbackData.getStatus())
                         ? PaymentStatus.PAID
@@ -151,18 +135,15 @@ public class PaymentServiceImpl implements PaymentService {
             throw new PaymentException("Missing vnp_SecureHash");
         }
 
-        // Need to create a mutable map to remove hash fields for verification
         Map<String, String> verifyParams = new HashMap<>(requestParams);
-
         boolean isValid = VNPayUtil.verifySecureHash(verifyParams, vnPayConfig.getHashSecret(), vnpSecureHash);
         if (!isValid) {
             log.error("Invalid VNPay Signature. Params: {}", requestParams);
             throw new PaymentException("Invalid VNPay Signature");
         }
 
-        // 2. Get Order ID
+        // 2. Get Order ID from txnRef (format: ORDER_{id}_{timestamp})
         String txnRef = requestParams.get("vnp_TxnRef");
-        // Format: ORDER_{id}_{timestamp}
         long orderId;
         try {
             String[] parts = txnRef.split("_");
@@ -180,72 +161,78 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
-    @Transactional
-    public PaymentResponse handleMomoCallback(Map<String, Object> requestBody) {
-        log.info("Handling Momo callback: {}", requestBody);
+    @Transactional(readOnly = true)
+    public PaymentResponse checkPaymentStatus(Long userId, Long orderId) {
+        log.info("Checking payment status for user: {}, order: {}", userId, orderId);
 
-        // 1. Verify Signature
-        // Momo signature format:
-        // accessKey=$accessKey&amount=$amount&extraData=$extraData&message=$message&orderId=$orderId&orderInfo=$orderInfo&orderType=$orderType&partnerCode=$partnerCode&payType=$payType&requestId=$requestId&responseTime=$responseTime&resultCode=$resultCode&transId=$transId
-        // Note: The order of fields MUST be exactly as above for signature generation
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new PaymentException("Order not found"));
 
-        try {
-            String signature = (String) requestBody.get("signature");
-
-            // Build raw data string manually to ensure correct order
-            String rawData = "accessKey=" + momoConfig.getAccessKey() +
-                    "&amount=" + requestBody.get("amount") +
-                    "&extraData=" + requestBody.get("extraData") +
-                    "&message=" + requestBody.get("message") +
-                    "&orderId=" + requestBody.get("orderId") +
-                    "&orderInfo=" + requestBody.get("orderInfo") +
-                    "&orderType=" + requestBody.get("orderType") +
-                    "&partnerCode=" + requestBody.get("partnerCode") +
-                    "&payType=" + requestBody.get("payType") +
-                    "&requestId=" + requestBody.get("requestId") +
-                    "&responseTime=" + requestBody.get("responseTime") +
-                    "&resultCode=" + requestBody.get("resultCode") +
-                    "&transId=" + requestBody.get("transId");
-
-            // TODO: MomoUtil.verifySignature needs to be robust.
-            // For now, we assume MomoUtil works correctly with this rawData.
-            // In a real scenario, we should use the same logic as
-            // MomoUtil.generateSignature
-
-            // Temporary skip signature check if needed for testing, but for production:
-            // boolean isValid = MomoUtil.verifySignature(momoConfig.getSecretKey(),
-            // rawData, signature);
-            // if (!isValid) throw new PaymentException("Invalid Momo Signature");
-
-        } catch (Exception e) {
-            log.error("Error verifying Momo signature", e);
-            // throw new PaymentException("Error verifying Momo signature");
+        if (!order.getUser().getId().equals(userId)) {
+            throw new PaymentException("Unauthorized access to order");
         }
 
-        // 2. Get Order ID
-        // Format: ORDER_{id}_{timestamp} or just {id} depending on what we sent
-        String orderIdStr = (String) requestBody.get("orderId"); // e.g. 1
-        long orderId;
-        try {
-            // If we sent just ID:
-            orderId = Long.parseLong(orderIdStr);
-        } catch (NumberFormatException e) {
-            // If we sent ORDER_{id}_{timestamp}
-            try {
-                String[] parts = orderIdStr.split("_");
-                orderId = Long.parseLong(parts[1]); // Assuming index 1 is ID
-            } catch (Exception ex) {
-                throw new PaymentException("Invalid orderId format: " + orderIdStr);
-            }
-        }
-
-        // 3. Check Status
-        Integer resultCode = (Integer) requestBody.get("resultCode");
-        PaymentStatus status = (resultCode != null && resultCode == 0) ? PaymentStatus.PAID : PaymentStatus.FAILED;
-        String transactionId = (String) requestBody.get("transId");
-
-        return updatePaymentStatus(orderId, status, transactionId);
+        return PaymentResponse.builder()
+                .orderId(order.getId())
+                .paymentMethod(order.getPaymentMethod().name())
+                .paymentStatus(order.getPaymentStatus().name())
+                .amount(order.getTotalAmount())
+                .message("Current payment status")
+                .build();
     }
+
+    @Override
+    @Transactional
+    public PaymentResponse processRefund(Long userId, Long orderId, String reason) {
+        log.info("Processing refund for user: {}, order: {}, reason: {}", userId, orderId, reason);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new PaymentException("Order not found"));
+
+        if (!order.getUser().getId().equals(userId)) {
+            throw new PaymentException("Unauthorized access to order");
+        }
+
+        if (order.getPaymentStatus() != PaymentStatus.PAID) {
+            throw new PaymentException("Cannot refund unpaid order");
+        }
+
+        if (order.getPaymentMethod() == PaymentMethod.COD) {
+            throw new PaymentException("COD orders cannot be refunded online");
+        }
+
+        // TODO: Call actual refund API of VNPay
+        log.warn("VNPay Refund API call not yet implemented, only updating status for order: {}", orderId);
+
+        order.setPaymentStatus(PaymentStatus.REFUNDED);
+        order.setStatus(OrderStatus.REFUNDED);
+        order.setUpdatedAt(LocalDateTime.now());
+        orderRepository.save(order);
+
+        // Create refund transaction record
+        PaymentTransaction refundTransaction = PaymentTransaction.builder()
+                .order(order)
+                .paymentMethod(order.getPaymentMethod())
+                .paymentStatus(PaymentStatus.REFUNDED)
+                .amount(order.getTotalAmount())
+                .createdAt(LocalDateTime.now())
+                .completedAt(LocalDateTime.now())
+                .gatewayResponse("Refund: " + reason)
+                .build();
+        paymentTransactionRepository.save(refundTransaction);
+
+        log.info("Refund processed for order: {}", orderId);
+
+        return PaymentResponse.builder()
+                .orderId(order.getId())
+                .paymentMethod(order.getPaymentMethod().name())
+                .paymentStatus(PaymentStatus.REFUNDED.name())
+                .amount(order.getTotalAmount())
+                .message("Refund processed: " + reason)
+                .build();
+    }
+
+    // ==================== Private Helpers ====================
 
     private PaymentResponse updatePaymentStatus(Long orderId, PaymentStatus newPaymentStatus, String transactionId) {
         Order order = orderRepository.findById(orderId)
@@ -303,78 +290,6 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public PaymentResponse checkPaymentStatus(Long userId, Long orderId) {
-        log.info("Checking payment status for user: {}, order: {}", userId, orderId);
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new PaymentException("Order not found"));
-
-        if (!order.getUser().getId().equals(userId)) {
-            throw new PaymentException("Unauthorized access to order");
-        }
-
-        return PaymentResponse.builder()
-                .orderId(order.getId())
-                .paymentMethod(order.getPaymentMethod().name())
-                .paymentStatus(order.getPaymentStatus().name())
-                .amount(order.getTotalAmount())
-                .message("Current payment status")
-                .build();
-    }
-
-    @Override
-    @Transactional
-    public PaymentResponse processRefund(Long userId, Long orderId, String reason) {
-        log.info("Processing refund for user: {}, order: {}, reason: {}", userId, orderId, reason);
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new PaymentException("Order not found"));
-
-        if (!order.getUser().getId().equals(userId)) {
-            throw new PaymentException("Unauthorized access to order");
-        }
-
-        if (order.getPaymentStatus() != PaymentStatus.PAID) {
-            throw new PaymentException("Cannot refund unpaid order");
-        }
-
-        if (order.getPaymentMethod() == PaymentMethod.COD) {
-            throw new PaymentException("COD orders cannot be refunded online");
-        }
-
-        // TODO: Call actual refund API of VNPay/Momo
-        log.warn("Refund API call not yet implemented, only updating status for order: {}", orderId);
-
-        order.setPaymentStatus(PaymentStatus.REFUNDED);
-        order.setStatus(OrderStatus.REFUNDED);
-        order.setUpdatedAt(LocalDateTime.now());
-        orderRepository.save(order);
-
-        // Create refund transaction record
-        PaymentTransaction refundTransaction = PaymentTransaction.builder()
-                .order(order)
-                .paymentMethod(order.getPaymentMethod())
-                .paymentStatus(PaymentStatus.REFUNDED)
-                .amount(order.getTotalAmount())
-                .createdAt(LocalDateTime.now())
-                .completedAt(LocalDateTime.now())
-                .gatewayResponse("Refund: " + reason)
-                .build();
-        paymentTransactionRepository.save(refundTransaction);
-
-        log.info("Refund processed for order: {}", orderId);
-
-        return PaymentResponse.builder()
-                .orderId(order.getId())
-                .paymentMethod(order.getPaymentMethod().name())
-                .paymentStatus(PaymentStatus.REFUNDED.name())
-                .amount(order.getTotalAmount())
-                .message("Refund processed: " + reason)
-                .build();
-    }
-
     private String generateVNPayUrl(Order order, String returnUrl) {
         try {
             Map<String, String> vnpParams = new HashMap<>();
@@ -395,7 +310,7 @@ public class PaymentServiceImpl implements PaymentService {
             String finalReturnUrl = returnUrl != null ? returnUrl : vnPayConfig.getReturnUrl();
             vnpParams.put("vnp_ReturnUrl", finalReturnUrl);
 
-            vnpParams.put("vnp_IpAddr", "127.0.0.1"); // Will be replaced by real IP in controller
+            vnpParams.put("vnp_IpAddr", "127.0.0.1");
 
             Date now = new Date();
             vnpParams.put("vnp_CreateDate", VNPayUtil.getVNPayDateFormat(now));

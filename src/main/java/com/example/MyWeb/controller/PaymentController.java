@@ -105,22 +105,6 @@ public class PaymentController {
     }
 
     /**
-     * POST /api/v1/payments/momo-callback
-     * Xử lý callback từ Momo (IPN)
-     * Momo trả về dữ liệu qua Body JSON
-     */
-    @PostMapping("/momo-callback")
-    public ResponseEntity<PaymentResponse> handleMomoCallback(
-            @RequestBody java.util.Map<String, Object> requestBody,
-            HttpServletRequest httpRequest) {
-        String clientIp = getClientIp(httpRequest);
-        log.info("Momo callback received from IP: {}, body: {}", clientIp, requestBody);
-
-        PaymentResponse response = paymentService.handleMomoCallback(requestBody);
-        return ResponseEntity.ok(response);
-    }
-
-    /**
      * GET /api/v1/payments/status/{orderId}
      * Kiểm tra trạng thái thanh toán của đơn hàng
      */

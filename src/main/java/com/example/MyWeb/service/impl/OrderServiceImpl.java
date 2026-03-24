@@ -112,22 +112,33 @@ public class OrderServiceImpl implements OrderService {
                         throw new RuntimeException("No items selected for checkout");
                 }
 
-                // IMPROVED: Validate ALL stock BEFORE creating order (Only for checkout items)
+                // [Tầng 3 - Idempotency] Kiểm tra key để tránh tạo đơn trùng khi user bấm liên
+                // tục
+                if (request.getIdempotencyKey() != null && !request.getIdempotencyKey().isBlank()) {
+                        java.util.Optional<Order> existingOrder = orderRepository
+                                        .findByIdempotencyKeyAndUser_Id(request.getIdempotencyKey(), userId);
+                        if (existingOrder.isPresent()) {
+                                log.warn("Duplicate checkout request detected. IdempotencyKey={}, UserId={}",
+                                                request.getIdempotencyKey(), userId);
+                                return toOrderDto(existingOrder.get());
+                        }
+                }
+
+                // [Tầng 1 - Atomic SQL Update] Kiểm tra sơ bộ trước khi tạo đơn
+                // Lưu ý: đây chỉ là kiểm tra có tham khảo, kiểm tra thực sự xảy ra
+                // trong atomicDecreaseStock() bên dưới (chốt chặn cuối cùng).
                 for (CartItem ci : checkoutItems) {
                         Product p = ci.getProduct();
                         ProductVariant v = ci.getVariant();
                         int qty = ci.getQuantity();
-
                         if (v != null) {
-                                // Validate variant stock
                                 Integer variantStock = v.getStock() != null ? v.getStock() : 0;
                                 if (variantStock < qty) {
-                                        throw new RuntimeException("Out of stock for variant: " + p.getName() + " - "
-                                                        + v.getColor() + "/" + v.getSize() + " (Available: "
-                                                        + variantStock + ", Requested: " + qty + ")");
+                                        throw new RuntimeException("Out of stock: " + p.getName()
+                                                        + " - " + v.getColor() + "/" + v.getSize()
+                                                        + " (Available: " + variantStock + ", Requested: " + qty + ")");
                                 }
                         } else {
-                                // Validate product stock using StockService
                                 stockService.validateStock(p.getId(), qty);
                         }
                 }
@@ -267,6 +278,7 @@ public class OrderServiceImpl implements OrderService {
                                 .voucherCode(voucherCode)
                                 .discountAmount(discountAmount)
                                 .note(request.getNote())
+                                .idempotencyKey(request.getIdempotencyKey()) // Idempotency
                                 .createdAt(now)
                                 .updatedAt(now)
                                 .items(new ArrayList<>())
@@ -278,20 +290,18 @@ public class OrderServiceImpl implements OrderService {
                         ProductVariant v = ci.getVariant();
                         int qty = ci.getQuantity();
 
-                        // IMPROVED: Use StockService for proper stock management
+                        // [Tầng 1 - Atomic SQL Update] Trừ tồn kho nguyên tử — chốt chặn cuối cùng
+                        // SQL: UPDATE ... WHERE id=? AND stock >= qty
+                        // row affected = 0 → OutOfStockException
                         if (v != null) {
-                                // Handle variant stock decrease (separate logic for variants)
-                                if (v.getStock() == null || v.getStock() < qty) {
-                                        throw new RuntimeException("Out of stock for variant: " + p.getName() + " - "
-                                                        + v.getColor() + "/" + v.getSize());
+                                int rows = productVariantRepository.atomicDecreaseStock(v.getId(), qty);
+                                if (rows == 0) {
+                                        throw new RuntimeException("Out of stock (concurrent): " + p.getName()
+                                                        + " - " + v.getColor() + "/" + v.getSize());
                                 }
-                                v.setStock(v.getStock() - qty);
-                                productVariantRepository.save(v);
-
-                                log.info("Decreased variant stock: product={}, variant={}, quantity={}",
-                                                p.getId(), v.getId(), qty);
+                                log.info("Atomic variant stock decreased: variantId={}, qty={}", v.getId(), qty);
                         } else {
-                                // Use StockService for product-level stock
+                                // stockService.decreaseStock() dùng atomicDecreaseStock bên trong
                                 stockService.decreaseStock(p.getId(), qty);
                         }
 
@@ -317,20 +327,8 @@ public class OrderServiceImpl implements OrderService {
                 // FIXED: Partial Checkout - Only remove purchased items
                 cart.getItems().removeAll(checkoutItems);
 
-                // Also delete from DB (orphanRemoval=true in Entity ensures this, but explicit
-                // delete is safer for many-to-many logic if cascade fails)
-                // With CascadeType.ALL + orphanRemoval=true, removing from list should be
-                // enough if we save cart.
-                // However, to be 100% sure we don't have dangling items:
-                // (Hibernate handles this if mapped correctly)
-
                 if (cart.getItems().isEmpty()) {
-                        // Option: Set to CHECKED_OUT or Keep ACTIVE?
-                        // If we keep ACTIVE, user can continue adding items easily.
-                        // Let's keep it ACTIVE for better partial checkout UX globally.
-                        // But if business logic requires new cart per session, we can close it.
-                        // For now: Keep ACTIVE.
-                        // cart.setStatus(CartStatus.CHECKED_OUT);
+
                 }
                 cart.setUpdatedAt(now);
                 cartRepository.save(cart);

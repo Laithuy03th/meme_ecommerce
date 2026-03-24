@@ -62,6 +62,14 @@ public class Order {
     @Column(name = "discount_amount")
     private Double discountAmount;
 
+    /**
+     * Idempotency Key — ngăn tạo đơn hàng trùng khi user bấm "Đặt hàng" nhiều lần.
+     * Frontend sinh UUID trước khi mở trang thanh toán, gửi lên cùng request.
+     * Nếu đơn đã tồn tại với key này → trả về đơn cũ, không tạo thêm.
+     */
+    @Column(name = "idempotency_key", unique = true)
+    private String idempotencyKey;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

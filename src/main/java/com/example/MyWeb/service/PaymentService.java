@@ -33,14 +33,6 @@ public interface PaymentService {
     PaymentResponse handleVnPayCallback(java.util.Map<String, String> requestParams);
 
     /**
-     * Xử lý callback từ Momo (IPN)
-     *
-     * @param requestBody Body JSON trả về từ Momo
-     * @return PaymentResponse kết quả xử lý
-     */
-    PaymentResponse handleMomoCallback(java.util.Map<String, Object> requestBody);
-
-    /**
      * Kiểm tra trạng thái thanh toán của đơn hàng
      * 
      * @param userId  ID người dùng

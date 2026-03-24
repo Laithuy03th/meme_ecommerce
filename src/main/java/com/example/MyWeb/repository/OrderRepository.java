@@ -45,4 +45,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
         // Count voucher usage by user
         long countByUser_IdAndVoucherCode(Long userId, String voucherCode);
+
+        /**
+         * Idempotency check: tìm đơn hàng theo idempotencyKey và userId.
+         * Nếu đã tồn tại → trả về đơn cũ, không tạo mới.
+         */
+        Optional<Order> findByIdempotencyKeyAndUser_Id(String idempotencyKey, Long userId);
 }
