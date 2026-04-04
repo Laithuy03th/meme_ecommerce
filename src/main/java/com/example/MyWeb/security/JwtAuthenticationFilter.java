@@ -21,6 +21,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final CustomUserDetailsService userDetailsService;
+    private final JwtBlacklistService jwtBlacklistService;
 
     @Override
     protected void doFilterInternal(
@@ -35,6 +36,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             System.out.println("JwtAuthenticationFilter: Token found. Valid? " + isValid);
 
             if (isValid) {
+                // LỖ HỔNG: Phải kiểm tra token có nằm trong Blacklist (đã logout) hay không!
+                if (jwtBlacklistService.isBlacklisted(token)) {
+                    System.out.println("JwtAuthenticationFilter: Token is blacklisted (logged out)");
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 String email = jwtService.getSubjectFromToken(token);
                 System.out.println("JwtAuthenticationFilter: Email from token: " + email);
 

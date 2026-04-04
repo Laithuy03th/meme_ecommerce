@@ -45,16 +45,11 @@ public class AuthController {
 
         LoginResponse res = authService.login(request);
 
-        // Determine cookie path based on user roles
-        // Admin users get cookies with path="/admin" to isolate from client app
-        boolean isAdmin = res.getUser().getRoles().contains("ADMIN");
-        String cookiePath = isAdmin ? "/admin" : "/";
-
-        // Store refresh token in HttpOnly cookie (secure against XSS)
+        // LUÔN LUÔN dùng path "/" cho tất cả mọi người (tránh lỗi kẹt Cookie giữa Admin và Client)
         Cookie refreshTokenCookie = CookieUtil.createRefreshTokenCookie(
                 res.getRefreshToken(),
                 7 * 24 * 60 * 60, // 7 days
-                cookiePath);
+                "/");
         response.addCookie(refreshTokenCookie);
 
         // Remove refresh token from response body for security
@@ -87,28 +82,29 @@ public class AuthController {
 
     /**
      * Logout endpoint
-     * Blacklists access token and deletes refresh token cookie
+     * Permitted to all (so expired tokens can still trigger logout logic cleanly)
      */
     @PostMapping("/logout")
-    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Void> logout(
             HttpServletRequest request,
             HttpServletResponse response) {
 
-        // Blacklist access token
-        String auth = request.getHeader("Authorization");
-        if (auth != null && auth.startsWith("Bearer ")) {
-            String token = auth.substring(7);
-            authService.logout(token);
+        // 1. Trích xuất Access Token (có thể null hoặc hết hạn)
+        String accessToken = null;
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            accessToken = authHeader.substring(7);
         }
 
-        // Delete refresh token cookies from BOTH paths to ensure clean logout
-        // This handles cases where user might have logged in from either admin or
-        // client
-        Cookie deleteClientCookie = CookieUtil.deleteRefreshTokenCookie("/");
-        Cookie deleteAdminCookie = CookieUtil.deleteRefreshTokenCookie("/admin");
-        response.addCookie(deleteClientCookie);
-        response.addCookie(deleteAdminCookie);
+        // 2. Trích xuất Refresh Token TỪ COOKIE!
+        String refreshToken = CookieUtil.getRefreshTokenFromCookies(request.getCookies());
+
+        // 3. Thực thi logic dọn dẹp (try-catch ẩn bên trong handle an toàn)
+        authService.logout(accessToken, refreshToken);
+
+        // 4. Xóa Refresh Token Cookie tại Path chung "/"
+        Cookie deleteCookie = CookieUtil.deleteRefreshTokenCookie("/");
+        response.addCookie(deleteCookie);
 
         return ResponseEntity.noContent().build();
     }
@@ -119,34 +115,38 @@ public class AuthController {
      * Returns new access token and sets new refresh token in cookie
      */
     @PostMapping("/refresh")
-    public ResponseEntity<LoginResponse> refreshToken(
+    public ResponseEntity<?> refreshToken(
             HttpServletRequest request,
             HttpServletResponse response) {
 
-        // Get refresh token from HttpOnly cookie
+        // 1. Get refresh token from HttpOnly cookie
         String refreshToken = CookieUtil.getRefreshTokenFromCookies(request.getCookies());
 
+        // 2. Nếu không có token, trả về 401 (KHÔNG throw RuntimeException)
         if (refreshToken == null || refreshToken.isEmpty()) {
-            throw new RuntimeException("Refresh token not found in cookies. Please login again.");
+            return ResponseEntity.status(401).body("Missing refresh token");
         }
 
-        // Generate new tokens
-        LoginResponse loginResponse = authService.refreshToken(refreshToken);
+        try {
+            // 3. Rotation: Service sẽ tạo cặp token mới và vô hiệu hóa cái cũ
+            LoginResponse loginResponse = authService.refreshToken(refreshToken);
 
-        // Determine cookie path based on user roles (same logic as login)
-        boolean isAdmin = loginResponse.getUser().getRoles().contains("ADMIN");
-        String cookiePath = isAdmin ? "/admin" : "/";
+            // 4. Ghi đè Cookie mới (Rotation) với path "/"
+            Cookie newRefreshTokenCookie = CookieUtil.createRefreshTokenCookie(
+                    loginResponse.getRefreshToken(),
+                    7 * 24 * 60 * 60, // 7 days
+                    "/");
+            response.addCookie(newRefreshTokenCookie);
 
-        // Set new refresh token in HttpOnly cookie (token rotation)
-        Cookie newRefreshTokenCookie = CookieUtil.createRefreshTokenCookie(
-                loginResponse.getRefreshToken(),
-                7 * 24 * 60 * 60, // 7 days
-                cookiePath);
-        response.addCookie(newRefreshTokenCookie);
+            // Xóa khỏi body
+            loginResponse.setRefreshToken(null);
 
-        // Remove refresh token from response body
-        loginResponse.setRefreshToken(null);
-
-        return ResponseEntity.ok(loginResponse);
+            return ResponseEntity.ok(loginResponse);
+            
+        } catch (Exception e) {
+            // Nếu rotation lỗi (do token đã bị dùng hoặc hết hạn), xóa cookie ngay
+            response.addCookie(CookieUtil.deleteRefreshTokenCookie("/"));
+            return ResponseEntity.status(401).body("Invalid or expired refresh token: " + e.getMessage());
+        }
     }
 }

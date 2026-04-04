@@ -19,7 +19,7 @@ public interface AuthService {
 
     void changePassword(Long userId, ChangePasswordRequest request);
 
-    void logout(String token); // sẽ blacklist token
+    void logout(String accessToken, String refreshToken); // sẽ blacklist token và xóa refresh token
 
     LoginResponse refreshToken(String refreshToken);
 

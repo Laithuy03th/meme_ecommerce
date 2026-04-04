@@ -216,18 +216,26 @@ public class AuthServiceImpl implements AuthService {
                 userRepository.save(user);
         }
 
-        // Logout: đưa token hiện tại vào blacklist
+        // Logout: đưa token hiện tại vào blacklist và xóa session khỏi DB
         @Override
         @Transactional
-        public void logout(String token) {
-                long exp = jwtService.getExpirationEpochSeconds(token); // implement hàm này trong JwtService
-                jwtBlacklistService.blacklist(token, exp);
+        public void logout(String accessToken, String refreshToken) {
+                // 1. Blacklist access token nếu còn hiệu lực (bắt exception nếu đã hết hạn thì bỏ qua)
+                if (accessToken != null && !accessToken.isEmpty()) {
+                        try {
+                                long exp = jwtService.getExpirationEpochSeconds(accessToken);
+                                jwtBlacklistService.blacklist(accessToken, exp);
+                        } catch (Exception e) {
+                                // Access token đã hết hạn hoặc không hợp lệ -> Không cần blacklist
+                        }
+                }
 
-                // L4. Xóa toàn bộ refresh token khi user logout
-                String email = jwtService.getSubjectFromToken(token);
-                userRepository.findByEmail(email).ifPresent(user -> {
-                        refreshTokenRepository.deleteByUser(user);
-                });
+                // 2. LỖI FIX: Chỉ xóa ĐÚNG refresh token của phiên này, không xóa sách token các thiết bị khác
+                if (refreshToken != null && !refreshToken.isEmpty()) {
+                        refreshTokenRepository.findByTokenHash(refreshToken).ifPresent(rt -> {
+                                refreshTokenRepository.delete(rt);
+                        });
+                }
         }
 
         // Refresh Token: tạo access token mới từ refresh token
