@@ -71,13 +71,24 @@ public class AdminUserServiceImpl implements AdminUserService {
                                         .findAllByOrderByCreatedAtDesc(pageable);
                 }
 
-                // Map sang DTO
-                return userPage.map(this::toListItemDto);
+                // L12 FIX: Batch load toàn bộ CustomerProfile trong 1 query thay vì N query
+                List<Long> userIds = userPage.getContent().stream()
+                                .map(User::getId)
+                                .collect(Collectors.toList());
+
+                java.util.Map<Long, CustomerProfile> profileMap = profileRepository
+                                .findByUserIdIn(userIds)
+                                .stream()
+                                .collect(java.util.stream.Collectors.toMap(
+                                                cp -> cp.getUser().getId(),
+                                                cp -> cp));
+
+                return userPage.map(user -> toListItemDtoBatch(user, profileMap.get(user.getId())));
         }
 
-        private AdminUserListItemResponse toListItemDto(User user) {
 
-                CustomerProfile profile = profileRepository.findByUser(user).orElse(null);
+        // L12 FIX: Nhận profile đã được load sẵn từ batch — không gọi thêm query
+        private AdminUserListItemResponse toListItemDtoBatch(User user, CustomerProfile profile) {
 
                 Set<String> roleCodes = user.getRoles()
                                 .stream()

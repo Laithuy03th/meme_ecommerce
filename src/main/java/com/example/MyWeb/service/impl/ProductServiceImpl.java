@@ -17,6 +17,7 @@ import com.example.MyWeb.model.Product;
 import com.example.MyWeb.model.ProductImage;
 import com.example.MyWeb.model.ProductVariant;
 import com.example.MyWeb.repository.ProductRepository;
+import com.example.MyWeb.repository.spec.ProductSpecifications;
 import com.example.MyWeb.service.ProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -69,23 +70,26 @@ public class ProductServiceImpl implements ProductService {
                 String kw = (keyword == null || keyword.trim().isEmpty()) ? null : keyword.trim().toLowerCase();
                 String catSlug = (categorySlug == null || categorySlug.trim().isEmpty()) ? null : categorySlug.trim();
 
-                // UPDATED: Add new sort options
-                Sort sort;
-                switch (sortBy) {
-                        case "oldest" -> sort = Sort.by("created_at").ascending();
-                        case "priceAsc" -> sort = Sort.by("base_price").ascending();
-                        case "priceDesc" -> sort = Sort.by("base_price").descending();
-                        case "bestSelling", "popular" -> sort = Sort.by("sold_count").descending()
-                                        .and(Sort.by("created_at").descending());
-                        case "topRated" -> sort = Sort.by("average_rating").descending()
-                                        .and(Sort.by("review_count").descending());
-                        default -> sort = Sort.by("created_at").descending(); // newest
-                }
+                // Sort field phải khớp với tên field trong Java entity (không phải DB column)
+                Sort sort = switch (sortBy) {
+                        case "oldest"                 -> Sort.by("createdAt").ascending();
+                        case "priceAsc"               -> Sort.by("basePrice").ascending();
+                        case "priceDesc"              -> Sort.by("basePrice").descending();
+                        case "bestSelling", "popular" -> Sort.by(Sort.Order.desc("soldCount"),
+                                                                   Sort.Order.desc("createdAt"));
+                        case "topRated"               -> Sort.by(Sort.Order.desc("averageRating"),
+                                                                   Sort.Order.desc("reviewCount"));
+                        default                       -> Sort.by("createdAt").descending(); // newest
+                };
 
                 Pageable pageable = PageRequest.of(page, size, sort);
 
-                Page<Product> productPage = productRepository.searchProducts(kw, catSlug, minPrice, maxPrice, brand,
-                                minRating, pageable);
+                // Dùng Specification thay vì native query
+                // Hỗ trợ search 2 tầng: product + variant (color, size, sku)
+                Page<Product> productPage = productRepository.findAll(
+                                ProductSpecifications.search(kw, catSlug, minPrice, maxPrice, brand, minRating),
+                                pageable
+                );
 
                 return productPage.map(this::toListItem);
         }
@@ -245,9 +249,13 @@ public class ProductServiceImpl implements ProductService {
                 String kw = (keyword == null || keyword.trim().isEmpty()) ? null : keyword.trim().toLowerCase();
                 String catSlug = (categorySlug == null || categorySlug.trim().isEmpty()) ? null : categorySlug.trim();
 
-                Pageable pageable = PageRequest.of(0, limit);
-                Page<Product> products = productRepository.searchProducts(kw, catSlug, null, null, null, null,
-                                pageable);
+                // Suggestion ưu tiên theo soldCount — sản phẩm phổ biến nhất lên đầu
+                Pageable pageable = PageRequest.of(0, limit, Sort.by(Sort.Order.desc("soldCount")));
+
+                Page<Product> products = productRepository.findAll(
+                                ProductSpecifications.search(kw, catSlug, null, null, null, null),
+                                pageable
+                );
 
                 return products.getContent().stream()
                                 .map(p -> ProductSuggestionResponse.builder()

@@ -189,22 +189,19 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     private void updateProductRating(Long productId) {
-        List<Review> reviews = reviewRepository.findByProduct_IdOrderByCreatedAtDesc(productId);
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
-        if (reviews.isEmpty()) {
+        // L10 FIX: Dùng SQL AVG chứ không load toàn bộ review vào RAM
+        long reviewCount = reviewRepository.countByProduct_Id(productId);
+        if (reviewCount == 0) {
             product.setAverageRating(null);
             product.setReviewCount(0);
         } else {
-            double average = reviews.stream()
-                    .mapToInt(Review::getRating)
-                    .average()
-                    .orElse(0.0);
-            // Round to 1 decimal place
-            double roundedAverage = Math.round(average * 10.0) / 10.0;
+            Double avg = reviewRepository.getAverageRatingByProductId(productId);
+            double roundedAverage = avg != null ? Math.round(avg * 10.0) / 10.0 : 0.0;
             product.setAverageRating(roundedAverage);
-            product.setReviewCount(reviews.size());
+            product.setReviewCount((int) reviewCount);
         }
         productRepository.save(product);
     }

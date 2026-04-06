@@ -27,7 +27,8 @@ import com.example.MyWeb.repository.UserRepository;
 import com.example.MyWeb.service.AuthService;
 import com.example.MyWeb.service.EmailService;
 
-import jakarta.transaction.Transactional;
+// L18 FIX: Dùng Spring @Transactional — nhất quán với toàn bộ dự án
+import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.security.authentication.AuthenticationManager;

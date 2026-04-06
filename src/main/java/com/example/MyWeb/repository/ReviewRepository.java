@@ -37,4 +37,11 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     // Admin: Filter by rating
     org.springframework.data.domain.Page<Review> findByRatingOrderByCreatedAtDesc(Integer rating,
             org.springframework.data.domain.Pageable pageable);
+
+    // L10 FIX: Đếm và tính trung bình bằng SQL — không load dữ liệu vào RAM
+    long countByProduct_Id(Long productId);
+
+    @org.springframework.data.jpa.repository.Query(
+        "SELECT AVG(r.rating) FROM Review r WHERE r.product.id = :productId")
+    Double getAverageRatingByProductId(@org.springframework.data.repository.query.Param("productId") Long productId);
 }

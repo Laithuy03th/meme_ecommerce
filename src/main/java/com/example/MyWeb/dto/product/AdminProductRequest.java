@@ -31,8 +31,14 @@ public class AdminProductRequest {
     private Integer stockQuantity;
 
     private String thumbnailUrl;
-
     private java.util.List<String> imageUrls; // Additional images
+
+    // New standard e-commerce fields
+    private String brand;
+    private String sku;
+    private Double weight;
+    private Boolean isFeatured;
+    private String videoUrl;
 
     // ACTIVE / INACTIVE / DRAFT
     private String status;

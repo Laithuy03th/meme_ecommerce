@@ -21,5 +21,19 @@ public class AdminProductResponse {
     private Integer stockQuantity;
     private String thumbnailUrl;
     private java.util.List<String> imageUrls;
+    
+    private String brand;
+    private String sku;
+    private Double weight;
+    private Boolean isFeatured;
+    private String videoUrl;
+    
+    private Double averageRating;
+    private Integer reviewCount;
+    private Integer soldCount;
+    private Integer viewCount;
+
     private String status;
+    private java.time.LocalDateTime createdAt;
+    private java.time.LocalDateTime updatedAt;
 }

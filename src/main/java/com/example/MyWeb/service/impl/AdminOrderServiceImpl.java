@@ -9,22 +9,24 @@ import com.example.MyWeb.model.Order;
 import com.example.MyWeb.model.OrderItem;
 import com.example.MyWeb.repository.OrderRepository;
 import com.example.MyWeb.service.AdminOrderService;
+import com.example.MyWeb.service.OrderService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 import com.example.MyWeb.model.enums.OrderStatus;
-import com.example.MyWeb.model.enums.PaymentMethod;
-import com.example.MyWeb.model.enums.PaymentStatus;
 
 @Service
 @RequiredArgsConstructor
 public class AdminOrderServiceImpl implements AdminOrderService {
 
     private final OrderRepository orderRepository;
+    @Lazy
+    private final OrderService orderService; // Delegate state machine & stock logic
 
     private AdminOrderSummaryResponse toSummaryDto(Order o) {
         Address addr = o.getAddress();
@@ -136,25 +138,13 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     }
 
     @Override
+    @Transactional
     public AdminOrderDetailResponse updateStatus(Long orderId, String newStatus) {
-        Order o = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found"));
+        // Delegate xuống OrderService — nơi chứa State Machine và logic hoàn stock
+        // Tránh trùng lặp code và đảm bảo nhất quán (L5/L13 fix)
+        orderService.updateOrderStatus(orderId, newStatus);
 
-        if (newStatus == null || newStatus.isBlank()) {
-            throw new RuntimeException("Status is required");
-        }
-
-        OrderStatus os;
-        try {
-            os = OrderStatus.valueOf(newStatus.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Invalid order status: " + newStatus);
-        }
-
-        o.setStatus(os);
-        o.setUpdatedAt(LocalDateTime.now());
-
-        o = orderRepository.save(o);
-        return toDetailDto(o);
+        // Reload để trả về AdminOrderDetailResponse mới nhất
+        return getDetail(orderId);
     }
 }

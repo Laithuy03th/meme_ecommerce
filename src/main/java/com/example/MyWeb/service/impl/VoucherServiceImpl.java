@@ -193,11 +193,8 @@ public class VoucherServiceImpl implements VoucherService {
     @Transactional(readOnly = true)
     public java.util.List<VoucherResponse> getActiveVouchers() {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        return voucherRepository.findAll().stream()
-                .filter(v -> v.getIsActive())
-                .filter(v -> v.getStartDate() == null || !now.isBefore(v.getStartDate()))
-                .filter(v -> v.getEndDate() == null || !now.isAfter(v.getEndDate()))
-                .filter(v -> v.getUsageLimit() == null || v.getUsedCount() < v.getUsageLimit())
+        // L6 FIX: Dùng query có điều kiện, không load toàn bộ bảng vào RAM
+        return voucherRepository.findActiveVouchers(now).stream()
                 .map(this::toDto)
                 .collect(java.util.stream.Collectors.toList());
     }

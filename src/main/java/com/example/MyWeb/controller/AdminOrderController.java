@@ -51,4 +51,10 @@ public class AdminOrderController {
     public ResponseEntity<?> approveReturn(@PathVariable Long orderId) {
         return ResponseEntity.ok(orderService.approveReturn(orderId));
     }
+
+    // Chuyển RETURNED → REFUNDED sau khi hoàn tiền cho khách
+    @PutMapping("/{orderId}/refund")
+    public ResponseEntity<?> refundOrder(@PathVariable Long orderId) {
+        return ResponseEntity.ok(adminOrderService.updateStatus(orderId, "REFUNDED"));
+    }
 }

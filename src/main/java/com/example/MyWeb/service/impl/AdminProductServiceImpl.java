@@ -6,8 +6,10 @@ import com.example.MyWeb.dto.product.AdminProductResponse;
 import com.example.MyWeb.model.Category;
 import com.example.MyWeb.model.Product;
 import com.example.MyWeb.model.ProductImage;
+import com.example.MyWeb.model.ProductVariant;
 import com.example.MyWeb.repository.CategoryRepository;
 import com.example.MyWeb.repository.ProductRepository;
+import com.example.MyWeb.repository.ProductVariantRepository;
 import com.example.MyWeb.service.AdminProductService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -22,6 +24,7 @@ public class AdminProductServiceImpl implements AdminProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
+    private final ProductVariantRepository productVariantRepository;
 
     private AdminProductResponse toDto(Product p) {
         return AdminProductResponse.builder()
@@ -38,7 +41,21 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .thumbnailUrl(p.getThumbnailUrl())
                 .imageUrls(p.getImages() != null ? p.getImages().stream().map(ProductImage::getImageUrl)
                         .collect(java.util.stream.Collectors.toList()) : null)
+                
+                // Advanced fields
+                .brand(p.getBrand())
+                .sku(p.getSku())
+                .weight(p.getWeight())
+                .isFeatured(p.getIsFeatured())
+                .videoUrl(p.getVideoUrl())
+                .averageRating(p.getAverageRating())
+                .reviewCount(p.getReviewCount())
+                .soldCount(p.getSoldCount())
+                .viewCount(p.getViewCount())
+                
                 .status(p.getStatus())
+                .createdAt(p.getCreatedAt())
+                .updatedAt(p.getUpdatedAt())
                 .build();
     }
 
@@ -50,11 +67,9 @@ public class AdminProductServiceImpl implements AdminProductService {
             slug = generateSlug(request.getName());
         }
 
+        // Lỗi 3 Fix: Báo lỗi trực tiếp cho admin thay vì dùng timestamp dài ngoằng
         if (productRepository.existsBySlug(slug)) {
-            // Nếu auto-generated slug trùng, thêm suffix random hoặc timestamp (đơn giản
-            // hoá: throw error để admin tự sửa)
-            // Hoặc tốt hơn: append random string
-            slug = slug + "-" + System.currentTimeMillis();
+            throw new IllegalArgumentException("Slug đã tồn tại: " + slug + ". Vui lòng chọn slug khác.");
         }
 
         Category category = categoryRepository.findById(request.getCategoryId())
@@ -69,8 +84,22 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .longDesc(request.getLongDesc())
                 .category(category)
                 .basePrice(request.getBasePrice())
-                .stockQuantity(request.getStockQuantity())
+                .stockQuantity(request.getStockQuantity() != null ? request.getStockQuantity() : 0)
                 .thumbnailUrl(request.getThumbnailUrl())
+                
+                // Lỗi 1 Fix: Save new advanced fields
+                .brand(request.getBrand())
+                .sku(request.getSku())
+                .weight(request.getWeight())
+                .isFeatured(request.getIsFeatured() != null ? request.getIsFeatured() : false)
+                .videoUrl(request.getVideoUrl())
+                
+                // Default analytics fields
+                .averageRating(0.0)
+                .reviewCount(0)
+                .soldCount(0)
+                .viewCount(0)
+                
                 .status(request.getStatus() != null ? request.getStatus() : "ACTIVE")
                 .createdAt(now)
                 .updatedAt(now)
@@ -91,17 +120,32 @@ public class AdminProductServiceImpl implements AdminProductService {
 
         p = productRepository.save(p);
 
+        // Lỗi 2 Fix: Tự động tạo Variant mặc định để Product có thể đặt hàng ngay.
+        ProductVariant defaultVariant = ProductVariant.builder()
+                .product(p)
+                .sku(p.getSku() != null ? p.getSku() + "-DEF" : p.getSlug().toUpperCase() + "-DEF")
+                .price(p.getBasePrice())
+                .stock(p.getStockQuantity())
+                .status("ACTIVE")
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+                
+        productVariantRepository.save(defaultVariant);
+
         return toDto(p);
     }
 
     private String generateSlug(String name) {
         if (name == null)
             return "";
-        String slug = name.toLowerCase();
+        String slug = name.toLowerCase()
+                .replace("đ", "d")
+                .replace("Đ", "d");
         slug = java.text.Normalizer.normalize(slug, java.text.Normalizer.Form.NFD);
         slug = slug.replaceAll("[\\p{InCombiningDiacriticalMarks}]", "");
         slug = slug.replaceAll("[^a-z0-9\\s-]", "");
-        slug = slug.replaceAll("\\s+", "-");
+        slug = slug.trim().replaceAll("\\s+", "-");
         return slug;
     }
 
@@ -110,28 +154,28 @@ public class AdminProductServiceImpl implements AdminProductService {
         Product p = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
 
-        // Nếu đổi slug, kiểm tra trùng
         if (request.getSlug() != null && !request.getSlug().equals(p.getSlug())) {
             if (productRepository.existsBySlug(request.getSlug())) {
-                throw new RuntimeException("Product slug already exists");
+                throw new IllegalArgumentException("Slug đã tồn tại: " + request.getSlug() + ". Vui lòng chọn slug khác.");
             }
             p.setSlug(request.getSlug());
         }
 
-        if (request.getName() != null)
-            p.setName(request.getName());
-        if (request.getShortDesc() != null)
-            p.setShortDesc(request.getShortDesc());
-        if (request.getLongDesc() != null)
-            p.setLongDesc(request.getLongDesc());
-        if (request.getBasePrice() != null)
-            p.setBasePrice(request.getBasePrice());
-        if (request.getStockQuantity() != null)
-            p.setStockQuantity(request.getStockQuantity());
-        if (request.getThumbnailUrl() != null)
-            p.setThumbnailUrl(request.getThumbnailUrl());
-        if (request.getStatus() != null)
-            p.setStatus(request.getStatus());
+        // Lỗi 4 Fix: Overwrite theo chuẩn PUT, nếu request gửi null/rỗng thì sẽ update thành null/rỗng
+        // Cho phép Admin xoá trắng mô tả (shortDesc, longDesc, brand...)
+        p.setName(request.getName());
+        p.setShortDesc(request.getShortDesc());
+        p.setLongDesc(request.getLongDesc());
+        p.setBasePrice(request.getBasePrice());
+        p.setStockQuantity(request.getStockQuantity() != null ? request.getStockQuantity() : 0);
+        p.setThumbnailUrl(request.getThumbnailUrl());
+        p.setStatus(request.getStatus() != null ? request.getStatus() : "ACTIVE");
+
+        p.setBrand(request.getBrand());
+        p.setSku(request.getSku());
+        p.setWeight(request.getWeight());
+        p.setIsFeatured(request.getIsFeatured() != null ? request.getIsFeatured() : false);
+        p.setVideoUrl(request.getVideoUrl());
 
         if (request.getCategoryId() != null) {
             Category category = categoryRepository.findById(request.getCategoryId())
@@ -166,20 +210,9 @@ public class AdminProductServiceImpl implements AdminProductService {
         Product p = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
 
-        // Option 1: Xoá cứng
-        // productRepository.delete(p);
-
-        // Option 2: chuẩn thực tế hơn – chuyển sang INACTIVE:
         p.setStatus("INACTIVE");
         p.setUpdatedAt(LocalDateTime.now());
         productRepository.save(p);
-    }
-
-    @Override
-    public Page<AdminProductResponse> list(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Product> productPage = productRepository.findAll(pageable);
-        return productPage.map(this::toDto);
     }
 
     @Override
@@ -187,5 +220,12 @@ public class AdminProductServiceImpl implements AdminProductService {
         Product p = productRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Product not found"));
         return toDto(p);
+    }
+
+    @Override
+    public Page<AdminProductResponse> list(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Product> productPage = productRepository.findAll(pageable);
+        return productPage.map(this::toDto);
     }
 }

@@ -673,56 +673,76 @@ public class OrderServiceImpl implements OrderService {
                 Order order = orderRepository.findById(orderId)
                                 .orElseThrow(() -> new RuntimeException("Order not found"));
 
-                OrderStatus status;
+                OrderStatus targetStatus;
                 try {
-                        status = OrderStatus.valueOf(newStatus);
+                        targetStatus = OrderStatus.valueOf(newStatus.trim().toUpperCase());
                 } catch (IllegalArgumentException e) {
                         throw new RuntimeException("Invalid order status: " + newStatus);
                 }
 
-                // If status is CANCELLED or RETURNED from admin panel, we should handle stock
-                // return
-                // Reuse cancel/return logic?
-                // Best practice: if admin sets CANCELLED, treat it as cancelling order.
-                if (status == OrderStatus.CANCELED) {
-                        if (order.getStatus() != OrderStatus.CANCELED && order.getStatus() != OrderStatus.RETURNED) {
-                                // Only return stock if not already cancelled/returned
-                                return cancelOrder(order.getUser().getId(), orderId); // Admin acts on behalf of user?
-                                // Check cancelOrder impl: it requires userId and checks ownership?
-                                // Our cancelOrder checks: findByIdAndUser_Id -> This will fail if we pass admin
-                                // id or random id.
-                                // So we must duplicate stock return logic here or refactor.
-                                // Let's duplicate tiny logic for safety and speed.
+                OrderStatus currentStatus = order.getStatus();
 
-                                // Logic below...
-                        }
+                // ================================================================
+                // STATE MACHINE: Chỉ cho phép các chuyển trạng thái hợp lệ
+                // ================================================================
+                if (!isValidTransition(currentStatus, targetStatus)) {
+                        throw new RuntimeException(
+                                "Invalid status transition: " + currentStatus + " -> " + targetStatus
+                                + ". Allowed: " + getAllowedTransitions(currentStatus));
                 }
 
-                // If Admin manually sets status, we assume they know what they are doing.
-                // Exception: CANCELED/RETURNED should return stock.
-                if ((status == OrderStatus.CANCELED || status == OrderStatus.RETURNED) &&
-                                (order.getStatus() != OrderStatus.CANCELED
-                                                && order.getStatus() != OrderStatus.RETURNED)) {
-
-                        // Return stock
+                // ================================================================
+                // Hoàn stock khi chuyển sang CANCELED hoặc RETURNED
+                // ================================================================
+                if (targetStatus == OrderStatus.CANCELED || targetStatus == OrderStatus.RETURNED) {
                         for (OrderItem item : order.getItems()) {
-                                Product product = item.getProduct();
                                 ProductVariant variant = item.getVariant();
                                 int quantity = item.getQuantity();
-
                                 if (variant != null) {
                                         Integer currentStock = variant.getStock() != null ? variant.getStock() : 0;
                                         variant.setStock(currentStock + quantity);
                                         productVariantRepository.save(variant);
                                 } else {
-                                        stockService.increaseStock(product.getId(), quantity);
+                                        stockService.increaseStock(item.getProduct().getId(), quantity);
                                 }
                         }
                 }
 
-                order.setStatus(status);
+                order.setStatus(targetStatus);
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
+                log.info("Order status updated: orderId={}, {} -> {}", orderId, currentStatus, targetStatus);
                 return toOrderDto(order);
+        }
+
+        /**
+         * State Machine: Các chuyển trạng thái hợp lệ
+         * Client: PENDING -> CANCELED, DELIVERED -> RETURN_REQUESTED
+         * Admin: PENDING -> CONFIRMED -> PACKED -> SHIPPED -> DELIVERED -> RETURNED -> REFUNDED
+         */
+        private boolean isValidTransition(OrderStatus from, OrderStatus to) {
+                return switch (from) {
+                        case PENDING          -> to == OrderStatus.CONFIRMED || to == OrderStatus.CANCELED;
+                        case CONFIRMED        -> to == OrderStatus.PACKED    || to == OrderStatus.CANCELED;
+                        case PACKED           -> to == OrderStatus.SHIPPED   || to == OrderStatus.CANCELED;
+                        case SHIPPED          -> to == OrderStatus.DELIVERED;
+                        case DELIVERED        -> to == OrderStatus.RETURN_REQUESTED || to == OrderStatus.REFUNDED;
+                        case RETURN_REQUESTED -> to == OrderStatus.RETURNED  || to == OrderStatus.DELIVERED;
+                        case RETURNED         -> to == OrderStatus.REFUNDED;
+                        case CANCELED, REFUNDED -> false;
+                };
+        }
+
+        private String getAllowedTransitions(OrderStatus from) {
+                return switch (from) {
+                        case PENDING          -> "CONFIRMED, CANCELED";
+                        case CONFIRMED        -> "PACKED, CANCELED";
+                        case PACKED           -> "SHIPPED, CANCELED";
+                        case SHIPPED          -> "DELIVERED";
+                        case DELIVERED        -> "RETURN_REQUESTED, REFUNDED";
+                        case RETURN_REQUESTED -> "RETURNED, DELIVERED";
+                        case RETURNED         -> "REFUNDED";
+                        case CANCELED, REFUNDED -> "none (terminal state)";
+                };
         }
 }

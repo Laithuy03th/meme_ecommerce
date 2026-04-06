@@ -50,8 +50,11 @@ public class OrderController {
     }
 
     // PUT /api/v1/users/me/orders/{orderId}/cancel
+    // FE có thể gửi kèm reason (optional) trong body
     @PutMapping("/{orderId}/cancel")
-    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable Long orderId) {
+    public ResponseEntity<OrderResponse> cancelOrder(
+            @PathVariable Long orderId,
+            @RequestBody(required = false) com.example.MyWeb.dto.order.ReturnRequest body) {
         Long userId = getCurrentUserId();
         return ResponseEntity.ok(orderService.cancelOrder(userId, orderId));
     }
