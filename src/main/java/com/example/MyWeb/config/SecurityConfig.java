@@ -44,7 +44,9 @@ public class SecurityConfig {
                 // PHÂN QUYỀN
                 .authorizeHttpRequests(auth -> auth
                         // Cho phép các endpoint này không cần token
-                        .requestMatchers("/api/v1/health", "/api/v1/auth/**", "/api/v1/categories/**",
+                        .requestMatchers("/api/v1/health", "/api/v1/auth/**",
+                                "/api/v1/admin/auth/**", // Admin login/refresh/logout — public (auth handled internally)
+                                "/api/v1/categories/**",
                                 "/api/v1/products/**", "/api/v1/payments/callback/**", "/v3/api-docs/**",
                                 "/swagger-ui.html", "/swagger-ui/**",
                                 "/swagger-resources/**", "/webjars/**", "/openapi.yaml", "/openapi.json", "/uploads/**")

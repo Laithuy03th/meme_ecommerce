@@ -11,6 +11,8 @@ public class CookieUtil {
     // Cookie names
     public static final String REFRESH_TOKEN_COOKIE = "refreshToken";
     public static final String ACCESS_TOKEN_COOKIE = "accessToken";
+    // Admin uses a SEPARATE cookie name to prevent session bleed between apps on same localhost
+    public static final String ADMIN_REFRESH_TOKEN_COOKIE = "adminRefreshToken";
 
     // Cookie settings
     private static final int REFRESH_TOKEN_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
@@ -95,6 +97,43 @@ public class CookieUtil {
         cookie.setMaxAge(0); // Delete immediately
 
         return cookie;
+    }
+
+    // ================================================================
+    // ADMIN COOKIE HELPERS — Separate cookie name: "adminRefreshToken"
+    // Prevents bleed between Client app and Admin app on same localhost
+    // ================================================================
+
+    public static Cookie createAdminRefreshTokenCookie(String refreshToken) {
+        return createAdminRefreshTokenCookie(refreshToken, REFRESH_TOKEN_MAX_AGE, "/");
+    }
+
+    public static Cookie createAdminRefreshTokenCookie(String refreshToken, int maxAge, String path) {
+        Cookie cookie = new Cookie(ADMIN_REFRESH_TOKEN_COOKIE, refreshToken);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(false); // TODO: true in production
+        cookie.setPath(path);
+        cookie.setMaxAge(maxAge);
+        return cookie;
+    }
+
+    public static Cookie deleteAdminRefreshTokenCookie() {
+        Cookie cookie = new Cookie(ADMIN_REFRESH_TOKEN_COOKIE, null);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(false);
+        cookie.setPath("/");
+        cookie.setMaxAge(0);
+        return cookie;
+    }
+
+    public static String getAdminRefreshTokenFromCookies(Cookie[] cookies) {
+        if (cookies == null || cookies.length == 0) return null;
+        for (Cookie cookie : cookies) {
+            if (ADMIN_REFRESH_TOKEN_COOKIE.equals(cookie.getName())) {
+                return cookie.getValue();
+            }
+        }
+        return null;
     }
 
     /**

@@ -112,6 +112,18 @@ public class OrderServiceImpl implements OrderService {
                         throw new RuntimeException("No items selected for checkout");
                 }
 
+                // [Tầng 4 - Deadlock Prevention] Tránh Deadlock khi Update Stock
+                // Sắp xếp items theo ProductId và VariantId tăng dần. 
+                // DB sẽ khóa dòng theo một chiều xuyên suốt mọi giao dịch, triệt tiêu khả năng 2 giao dịch khóa chéo nhau gây Deadlock.
+                checkoutItems.sort((item1, item2) -> {
+                        int pCmp = item1.getProduct().getId().compareTo(item2.getProduct().getId());
+                        if (pCmp != 0) return pCmp;
+                        
+                        Long v1 = item1.getVariant() != null ? item1.getVariant().getId() : 0L;
+                        Long v2 = item2.getVariant() != null ? item2.getVariant().getId() : 0L;
+                        return v1.compareTo(v2);
+                });
+
                 // [Tầng 3 - Idempotency] Kiểm tra key để tránh tạo đơn trùng khi user bấm liên
                 // tục
                 if (request.getIdempotencyKey() != null && !request.getIdempotencyKey().isBlank()) {
