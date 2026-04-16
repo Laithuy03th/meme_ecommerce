@@ -2,30 +2,47 @@ package com.example.MyWeb.service;
 
 import com.example.MyWeb.dto.ChatRequest;
 import com.example.MyWeb.dto.ChatResponse;
+import com.example.MyWeb.dto.ChatTurn;
 import com.example.MyWeb.dto.QuickReply;
 import com.example.MyWeb.model.ChatMessage;
-import com.example.MyWeb.model.ChatbotKnowledge;
+import com.example.MyWeb.model.FaqDocument;
 import com.example.MyWeb.model.Order;
 import com.example.MyWeb.model.Product;
 import com.example.MyWeb.repository.ChatMessageRepository;
 import com.example.MyWeb.repository.ChatbotKnowledgeRepository;
 import com.example.MyWeb.repository.OrderRepository;
 import com.example.MyWeb.repository.ProductRepository;
+import com.example.MyWeb.repository.spec.ProductSpecifications;
+import com.example.MyWeb.service.impl.GeminiLlmService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.text.NumberFormat;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+/**
+ * AI-powered Chatbot Service — Tuần 2 Implementation (RAG Integration)
+ *
+ * Pipeline:
+ * 1. Load conversation context (in-memory)
+ * 2. LLM classify intent (Gemini gemini-1.5-flash)
+ * 3. Route theo intent:
+ *    - product → extract constraints → query DB → LLM diễn đạt
+ *    - policy  → hardcoded + LLM (RAG sẽ thêm ở Tuần 2-3)
+ *    - order   → query DB → format response
+ *    - greeting → welcome message
+ * 4. Update context + save to DB
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -35,38 +52,55 @@ public class ChatbotServiceImpl implements ChatbotService {
     private final ChatbotKnowledgeRepository knowledgeRepository;
     private final ProductRepository productRepository;
     private final OrderRepository orderRepository;
+    private final LlmService llmService;
+    private final RagService ragService;
+    private final ConversationContextService contextService;
+    private final ObjectMapper objectMapper;
+
+    // =========================================================================
+    // Public API (implements ChatbotService interface)
+    // =========================================================================
 
     @Override
     @Transactional
     public ChatResponse processMessage(ChatRequest request) {
-        log.info("Processing message: {} for session: {}", request.getMessage(), request.getSessionId());
+        String sessionId = request.getSessionId();
+        String userMessage = request.getMessage().trim();
 
-        String userMessage = request.getMessage().trim().toLowerCase();
+        log.info("[Chatbot] Session={} | User: {}", sessionId.substring(0, 8), userMessage);
 
-        // 1. Detect intent
-        IntentResult intentResult = detectIntent(userMessage);
+        // 1. Load conversation context
+        List<ChatTurn> history = contextService.getHistory(sessionId);
 
-        // 2. Generate response based on intent
-        ChatResponse response = generateResponse(intentResult, request);
+        // 2. Classify intent via Gemini LLM
+        String intent;
+        try {
+            intent = llmService.classifyIntent(userMessage, history);
+        } catch (Exception e) {
+            log.error("LLM classification failed, using fallback", e);
+            intent = "other";
+        }
 
-        // 3. Save to database
+        log.info("[Chatbot] Intent: '{}'", intent);
+
+        // 3. Update context with user turn
+        contextService.addUserTurn(sessionId, userMessage);
+
+        // 4. Generate response based on intent
+        ChatResponse response = routeAndRespond(intent, userMessage, history, request);
+
+        // 5. Update context with bot response
+        contextService.addBotTurn(sessionId, response.getResponse(), intent);
+
+        // 6. Save to DB (async-safe)
         saveChatMessage(request, response);
 
         return response;
     }
 
     @Override
-    public List<ChatResponse> getChatHistory(String sessionId) {
-        List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-
-        return messages.stream()
-                .filter(msg -> msg.getMessageType() == ChatMessage.MessageType.BOT)
-                .map(msg -> ChatResponse.builder()
-                        .response(msg.getResponse())
-                        .intent(msg.getIntent())
-                        .sessionId(msg.getSessionId())
-                        .build())
-                .collect(Collectors.toList());
+    public List<ChatMessage> getChatHistory(String sessionId) {
+        return chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
     }
 
     @Override
@@ -74,592 +108,473 @@ public class ChatbotServiceImpl implements ChatbotService {
         return Arrays.asList(
                 "Tìm sản phẩm",
                 "Kiểm tra đơn hàng",
-                "Thanh toán như thế nào?",
                 "Chính sách giao hàng",
-                "Voucher giảm giá");
+                "Đổi trả hàng như thế nào?",
+                "Có voucher gì không?");
     }
 
-    // ==================== Private Methods ====================
-
-    private IntentResult detectIntent(String message) {
-        List<ChatbotKnowledge> activeKnowledge = knowledgeRepository.findByIsActiveTrueOrderByPriorityDesc();
-
-        // Self-Healing: Nếu knowledge base rỗng, tự động khởi tạo lại ngay lập tức
-        if (activeKnowledge.isEmpty()) {
-            log.warn("Knowledge base is empty during intent detection! Triggering initialization...");
-            initializeKnowledgeBase();
-            activeKnowledge = knowledgeRepository.findByIsActiveTrueOrderByPriorityDesc();
+    @PostConstruct
+    @Override
+    public void initializeKnowledgeBase() {
+        // Knowledge base cũ vẫn giữ để backward-compat, nhưng không còn là engine chính
+        if (knowledgeRepository.count() > 0) {
+            log.info("Knowledge base already initialized (legacy)");
+            return;
         }
-
-        for (ChatbotKnowledge knowledge : activeKnowledge) {
-            for (String pattern : knowledge.getPatterns()) {
-                if (matchesPattern(message, pattern)) {
-                    log.info("Matched intent: {} with pattern: {}", knowledge.getIntent(), pattern);
-                    return new IntentResult(knowledge.getIntent(), knowledge, extractEntities(message));
-                }
-            }
-        }
-
-        log.info("No intent matched for message: {}", message);
-        // Default fallback intent
-        return new IntentResult("fallback", null, new HashMap<>());
+        log.info("Knowledge base is empty, skip legacy init (using LLM now)");
     }
 
-    private boolean matchesPattern(String message, String pattern) {
-        if (message == null || pattern == null)
-            return false;
+    // =========================================================================
+    // Intent Routing
+    // =========================================================================
 
-        // Normalize
-        String normalizedMsg = message.trim().toLowerCase();
-        String normalizedPattern = pattern.trim().toLowerCase();
-
-        // 1. Direct match (Exact equality)
-        if (normalizedMsg.equals(normalizedPattern))
-            return true;
-
-        // 2. Wildcard regex match
-        // Escape special regex chars except '*' and '?'
-        String regex = "\\Q" + normalizedPattern.replace("*", "\\E.*\\Q").replace("?", "\\E.?\\Q") + "\\E";
-
-        // Clean up empty Q-E pairs (optional but cleaner)
-        regex = regex.replace("\\Q\\E", "");
-
-        // Add boundary checks or flexible whitespace
-        // Pattern: "tìm *" -> Regex: "tìm .*"
-        Pattern p = Pattern.compile("^" + regex + "$", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-        Matcher m = p.matcher(normalizedMsg);
-        return m.find();
-    }
-
-    private Map<String, String> extractEntities(String message) {
-        Map<String, String> entities = new HashMap<>();
-
-        // Extract order ID (e.g., "đơn 123", "order 456", "#789")
-        Pattern orderPattern = Pattern.compile("(?:đơn|order|#)\\s*(\\d+)");
-        Matcher orderMatcher = orderPattern.matcher(message);
-        if (orderMatcher.find()) {
-            entities.put("orderId", orderMatcher.group(1));
-        }
-
-        // 1. Try hardcoded keywords first (High priority)
-        String[] keywords = {
-                // Fashion - Vietnamese
-                "áo", "sơ mi", "khoác", "thun", "polo", "len", "vest",
-                "quần", "jean", "tây", "short", "dài", "kaki",
-                "váy", "đầm", "dạ hội", "công sở", "dự tiệc",
-                "giày", "sneaker", "boot", "sandal", "dép", "cao gót",
-
-                // Fashion - English (match DataSeeder)
-                "dress", "shoes", "jacket", "sneakers", "boots",
-                "t-shirt", "tshirt", "shirt", "loafers", "leather",
-
-                // Electronics - Vietnamese
-                "tai nghe", "loa", "đồng hồ", "smart watch",
-
-                // Electronics - English (match DataSeeder)
-                "headphones", "speaker", "watch", "wireless", "earbuds",
-                "mouse", "keyboard", "charger", "router",
-
-                // Beauty - Vietnamese
-                "mỹ phẩm", "kem", "son", "phấn",
-
-                // Beauty - English (match DataSeeder)
-                "serum", "cream", "face", "moisturizer", "toner",
-                "wash", "scrub", "mask", "mist",
-
-                // Home & Living - Vietnamese
-                "đèn", "ghế", "bàn", "nội thất",
-
-                // Home & Living - English (match DataSeeder)
-                "lamp", "chair", "desk", "furniture", "table"
-        };
-        boolean keywordFound = false;
-        for (String keyword : keywords) {
-            if (message.contains(keyword)) {
-                entities.put("productKeyword", keyword);
-                keywordFound = true;
-                break; // Chỉ lấy keyword đầu tiên tìm thấy
-            }
-        }
-
-        // 2. If no hardcoded keyword found, try to extract from "find/buy" pattern
-        // Regex capture text after "tìm", "mua", "search"
-        if (!keywordFound) {
-            Pattern searchPattern = Pattern.compile("(?:tìm|mua|search|check)\\s+(.+)");
-            Matcher searchMatcher = searchPattern.matcher(message);
-            if (searchMatcher.find()) {
-                String potentialKeyword = searchMatcher.group(1).trim();
-                // Avoid capturing if it looks like an order check
-                if (!potentialKeyword.matches(".*(?:đơn|order|#).*")) {
-                    entities.put("productKeyword", potentialKeyword);
-                }
-            }
-        }
-
-        return entities;
-    }
-
-    private ChatResponse generateResponse(IntentResult intentResult, ChatRequest request) {
-        String intent = intentResult.getIntent();
-        ChatbotKnowledge knowledge = intentResult.getKnowledge();
-        Map<String, String> entities = intentResult.getEntities();
-
-        ChatResponse.ChatResponseBuilder responseBuilder = ChatResponse.builder()
+    private ChatResponse routeAndRespond(String intent, String userMessage,
+                                          List<ChatTurn> history, ChatRequest request) {
+        ChatResponse.ChatResponseBuilder builder = ChatResponse.builder()
                 .intent(intent)
                 .sessionId(request.getSessionId());
 
-        switch (intent) {
-            case "greeting":
-                return handleGreeting(responseBuilder);
-
-            case "product_inquiry":
-                return handleProductInquiry(responseBuilder, entities);
-
-            case "order_tracking":
-                return handleOrderTracking(responseBuilder, entities, request.getUserId());
-
-            case "payment_info":
-                return handlePaymentInfo(responseBuilder);
-
-            case "shipping_info":
-                return handleShippingInfo(responseBuilder);
-
-            case "voucher_info":
-                return handleVoucherInfo(responseBuilder);
-
-            case "contact":
-                return handleContact(responseBuilder);
-
-            case "fallback":
-            default:
-                return handleFallback(responseBuilder, knowledge);
-        }
-    }
-
-    private ChatResponse handleGreeting(ChatResponse.ChatResponseBuilder builder) {
-        String[] greetings = {
-                "Xin chào! Tôi là trợ lý ảo của MyWeb. Tôi có thể giúp gì cho bạn?",
-                "Chào bạn! Mình có thể hỗ trợ bạn về sản phẩm, đơn hàng, thanh toán. Bạn cần gì nhé?",
-                "Hello! Rất vui được hỗ trợ bạn hôm nay. Bạn muốn tìm hiểu về điều gì?"
+        return switch (intent) {
+            case "greeting" -> handleGreeting(builder, userMessage, history);
+            case "product"  -> handleProductSearch(builder, userMessage, history);
+            case "policy"   -> handlePolicyQuestion(builder, userMessage, history);
+            case "order"    -> handleOrderTracking(builder, userMessage, history, request.getUserId());
+            default         -> handleOther(builder, userMessage, history);
         };
+    }
+
+    // =========================================================================
+    // Handler: Greeting
+    // =========================================================================
+
+    private ChatResponse handleGreeting(ChatResponse.ChatResponseBuilder builder,
+                                         String userMessage, List<ChatTurn> history) {
+        String systemPrompt = """
+                === VAI TRÒ ===
+                Bạn đang là trợ lý AI của MemeShop - cửa hàng thương mại điện tử.
+                Hãy chào hỏi thân thiện và giới thiệu ngắn gọn những gì bạn có thể giúp:
+                - Tìm kiếm và tư vấn sản phẩm bằng ngôn ngữ tự nhiên
+                - Tra cứu đơn hàng theo mã hoặc tài khoản
+                - Giải đáp chính sách giao hàng, đổi trả, bảo hành
+                
+                Giữ câu trả lời ngắn gọn (tối đa 3-4 câu), dùng 1-2 emoji.
+                """;
+
+        String response = llmService.generateResponse(systemPrompt, userMessage, history);
 
         return builder
-                .response(greetings[new Random().nextInt(greetings.length)])
+                .response(response)
                 .quickReplies(Arrays.asList(
-                        QuickReply.builder().label("Tìm sản phẩm").value("tìm sản phẩm").icon("🔍").build(),
-                        QuickReply.builder().label("Kiểm tra đơn hàng").value("kiểm tra đơn hàng").icon("📦").build(),
-                        QuickReply.builder().label("Thanh toán").value("thanh toán như thế nào").icon("💳").build(),
-                        QuickReply.builder().label("Voucher").value("có voucher gì").icon("🎫").build()))
+                        QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").icon("🔍").build(),
+                        QuickReply.builder().label("📦 Đơn hàng của tôi").value("xem đơn hàng của tôi").icon("📦").build(),
+                        QuickReply.builder().label("🚚 Chính sách giao hàng").value("chính sách giao hàng như thế nào").icon("🚚").build(),
+                        QuickReply.builder().label("🔄 Đổi trả hàng").value("chính sách đổi trả hàng").icon("🔄").build()))
                 .build();
     }
 
-    private ChatResponse handleProductInquiry(ChatResponse.ChatResponseBuilder builder, Map<String, String> entities) {
-        String keyword = entities.get("productKeyword");
+    // =========================================================================
+    // Handler: Product Search (quan trọng nhất)
+    // =========================================================================
 
-        if (keyword != null) {
-            // Search products by keyword
-            List<Product> products = productRepository.findByNameContainingIgnoreCaseAndStatus(keyword, "ACTIVE");
+    private ChatResponse handleProductSearch(ChatResponse.ChatResponseBuilder builder,
+                                              String userMessage, List<ChatTurn> history) {
+        // 1. Kiểm tra follow-up: "con nào pin hơn?" — dựa vào context
+        boolean isFollowUp = isProductFollowUp(userMessage, history);
 
-            if (!products.isEmpty()) {
-                List<Map<String, Object>> productData = products.stream()
-                        .limit(5)
-                        .map(p -> {
-                            Map<String, Object> data = new HashMap<>();
-                            data.put("id", p.getId());
-                            data.put("name", p.getName());
-                            data.put("price", p.getBasePrice());
-                            data.put("imageUrl", p.getThumbnailUrl());
-                            return data;
-                        })
-                        .collect(Collectors.toList());
-
-                return builder
-                        .response(String.format("Tìm thấy %d sản phẩm phù hợp với '%s':", products.size(), keyword))
-                        .data(Map.of("products", productData))
-                        .quickReplies(Arrays.asList(
-                                QuickReply.builder().label("Xem tất cả").value("xem tất cả " + keyword).build(),
-                                QuickReply.builder().label("Tìm sản phẩm khác").value("tìm sản phẩm khác").build()))
-                        .build();
-            }
+        // 2. LLM extract search constraints
+        String constraintsJson;
+        try {
+            constraintsJson = llmService.extractProductConstraints(userMessage, history);
+            log.info("[ProductSearch] Constraints JSON: {}", constraintsJson);
+        } catch (Exception e) {
+            log.error("Failed to extract product constraints", e);
+            constraintsJson = "{}";
         }
 
-        // Default product inquiry response
-        return builder
-                .response("Bạn muốn tìm sản phẩm gì? Hãy cho mình biết tên hoặc loại sản phẩm bạn quan tâm nhé! 😊")
-                .quickReplies(Arrays.asList(
-                        QuickReply.builder().label("Sản phẩm mới").value("sản phẩm mới").build(),
-                        QuickReply.builder().label("Sản phẩm bán chạy").value("sản phẩm bán chạy").build(),
-                        QuickReply.builder().label("Khuyến mãi").value("khuyến mãi").build()))
-                .build();
-    }
+        // 3. Parse constraints
+        String keyword = null;
+        String categorySlug = null;
+        String brand = null;
+        Double maxPrice = null;
+        Double minPrice = null;
+        Double minRating = null;
 
-    private ChatResponse handleOrderTracking(ChatResponse.ChatResponseBuilder builder,
-            Map<String, String> entities,
-            Long userId) {
-        String orderIdStr = entities.get("orderId");
-
-        // CASE 1: Người dùng đã login nhưng KHÔNG nhập mã đơn cụ thể -> Xem danh sách
-        // đơn hàng
-        if (orderIdStr == null && userId != null) {
-            Pageable pageable = PageRequest.of(0, 5);
-            Page<Order> page = orderRepository.findByUser_IdOrderByCreatedAtDesc(userId, pageable);
-
-            if (page.isEmpty()) {
-                return builder.response("Bạn chưa có đơn hàng nào tại MyWeb. 🛍️\nHãy dạo một vòng xem sản phẩm nhé!")
-                        .quickReplies(
-                                Arrays.asList(QuickReply.builder().label("Xem sản phẩm").value("tìm sản phẩm").build()))
-                        .build();
+        try {
+            JsonNode constraints = objectMapper.readTree(constraintsJson);
+            if (!constraints.path("keyword").isNull()) {
+                keyword = constraints.path("keyword").asText(null);
             }
-
-            // Tạo data structure để FE render được
-            List<Map<String, Object>> ordersData = page.getContent().stream()
-                    .map(o -> {
-                        Map<String, Object> orderMap = new HashMap<>();
-                        orderMap.put("id", o.getId());
-                        orderMap.put("status", o.getStatus().toString());
-                        orderMap.put("paymentStatus",
-                                o.getPaymentStatus() != null ? o.getPaymentStatus().toString() : "UNKNOWN");
-                        orderMap.put("totalAmount", o.getTotalAmount());
-                        orderMap.put("createdAt", o.getCreatedAt());
-                        orderMap.put("itemCount", o.getItems() != null ? o.getItems().size() : 0);
-                        return orderMap;
-                    })
-                    .collect(Collectors.toList());
-
-            StringBuilder msg = new StringBuilder("📦 **Đơn hàng gần đây của bạn:**\n\n");
-            for (Order o : page.getContent()) {
-                msg.append(String.format("• #%d - %s (%s)\n",
-                        o.getId(),
-                        o.getStatus(),
-                        NumberFormat.getCurrencyInstance(Locale.forLanguageTag("vi-VN")).format(o.getTotalAmount())));
+            if (!constraints.path("categorySlug").isNull()) {
+                categorySlug = constraints.path("categorySlug").asText(null);
             }
-            msg.append("\n💡 Nhấn vào đơn hàng để xem chi tiết!");
+            if (!constraints.path("brand").isNull()) {
+                brand = constraints.path("brand").asText(null);
+            }
+            if (!constraints.path("maxPrice").isNull() && constraints.path("maxPrice").isNumber()) {
+                maxPrice = constraints.path("maxPrice").asDouble();
+            }
+            if (!constraints.path("minPrice").isNull() && constraints.path("minPrice").isNumber()) {
+                minPrice = constraints.path("minPrice").asDouble();
+            }
+            if (!constraints.path("minRating").isNull() && constraints.path("minRating").isNumber()) {
+                minRating = constraints.path("minRating").asDouble();
+            }
+            
+            // Xử lý isFollowUp nếu đang ở bối cảnh trước đó
+            if (constraints.path("isFollowUp").asBoolean(false) && keyword == null) {
+                // Nếu là follow-up mà ko có keyword, có thể khách đang hỏi tiếp về kết quả cũ
+                // Ta có thể giữ lại keyword trước đó từ context (ở đây đơn giản hóa)
+                log.info("Follow-up detected: trying to maintain product context");
+            }
+            
+        } catch (Exception e) {
+            log.warn("Failed to parse constraints JSON, using keyword fallback: {}", constraintsJson);
+            keyword = userMessage;
+        }
 
-            List<QuickReply> replies = page.getContent().stream()
-                    .limit(3)
-                    .map(o -> QuickReply.builder()
-                            .label("Xem đơn #" + o.getId())
-                            .value("đơn " + o.getId())
-                            .icon("📦")
-                            .build())
-                    .collect(Collectors.toList());
+        // 4. Query Database using ProductSpecifications
+        List<Product> products = searchProductsAdvanced(keyword, categorySlug, minPrice, maxPrice, brand, minRating, 5);
 
-            // Thêm .data() chứa thông tin đơn hàng để FE render UI
-            return builder
-                    .response(msg.toString())
-                    .data(Map.of("orders", ordersData, "totalOrders", page.getTotalElements()))
-                    .quickReplies(replies)
+        if (products.isEmpty()) {
+            // Không tìm thấy — hỏi lại
+            String clarifyResponse = llmService.generateResponse(
+                    "Không tìm thấy sản phẩm phù hợp trong DB. Hãy xin lỗi ngắn gọn và hỏi lại yêu cầu cụ thể hơn.",
+                    userMessage, history);
+            return builder.response(clarifyResponse)
+                    .quickReplies(List.of(
+                            QuickReply.builder().label("Xem tất cả sản phẩm").value("xem tất cả sản phẩm").build(),
+                            QuickReply.builder().label("Tìm lại").value("tôi muốn tìm sản phẩm khác").build()))
                     .build();
         }
 
-        // CASE 2: Tra cứu đơn hàng cụ thể theo ID (như cũ)
+        // 5. Build product data cho FE render cards
+        List<Map<String, Object>> productData = products.stream().map(p -> {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("id", p.getId());
+            data.put("name", p.getName());
+            data.put("price", p.getBasePrice());
+            data.put("imageUrl", p.getThumbnailUrl());
+            data.put("slug", p.getSlug());
+            data.put("brand", p.getBrand());
+            data.put("rating", p.getAverageRating());
+            return data;
+        }).collect(Collectors.toList());
+
+        // 6. LLM tổng hợp câu trả lời tự nhiên
+        String productListText = products.stream()
+                .map(p -> String.format("- %s (%s): %.0f VNĐ",
+                        p.getName(),
+                        p.getBrand() != null ? p.getBrand() : "N/A",
+                        p.getBasePrice()))
+                .collect(Collectors.joining("\n"));
+
+        String systemPrompt = String.format("""
+                === NHIỆM VỤ ===
+                Tư vấn sản phẩm cho khách hàng dựa trên danh sách tìm được từ database.
+                Nêu bật 1-2 điểm nổi bật phù hợp với nhu cầu. Ngắn gọn, thân thiện.
+                Kết thúc bằng gợi ý xem chi tiết hoặc hỏi thêm về nhu cầu.
+                
+                === DANH SÁCH SẢN PHẨM TÌM ĐƯỢC ===
+                %s
+                
+                === YÊU CẦU CỦA KHÁCH ===
+                (Hãy đề cập đến yêu cầu này trong câu trả lời)
+                """, productListText);
+
+        String response = llmService.generateResponse(systemPrompt, userMessage, history);
+
+        // 7. Build quick replies động
+        List<QuickReply> quickReplies = new ArrayList<>();
+        if (products.size() == 5) {
+            quickReplies.add(QuickReply.builder().label("Xem thêm kết quả").value("cho xem thêm sản phẩm tương tự").build());
+        }
+        quickReplies.add(QuickReply.builder().label("So sánh").value("so sánh các sản phẩm này").build());
+        quickReplies.add(QuickReply.builder().label("Tìm loại khác").value("tôi muốn tìm loại sản phẩm khác").build());
+
+        return builder
+                .response(response)
+                .data(Map.of("products", productData))
+                .quickReplies(quickReplies)
+                .build();
+    }
+
+    // =========================================================================
+    // Handler: Policy/FAQ (Tuần 2: RAG Integration)
+    // =========================================================================
+
+    private ChatResponse handlePolicyQuestion(ChatResponse.ChatResponseBuilder builder,
+                                               String userMessage, List<ChatTurn> history) {
+        
+        // 1. RAG Retrieve: Tìm kiếm tài liệu FAQ phù hợp nhất từ pgvector
+        List<FaqDocument> relevantDocs = ragService.retrieveRelevantContext(userMessage, 3);
+        
+        // 2. Build Context String
+        String policyContext = "(Rất tiếc, hiện tại không tìm thấy tài liệu chính sách phù hợp. Hãy trả lời dựa trên kiến thức chung hợp lý nhất của một cửa hàng điện tử, và khuyên khách hàng liên hệ hotline.)";
+        
+        if (!relevantDocs.isEmpty()) {
+            policyContext = ragService.buildContextString(relevantDocs);
+        }
+
+        String systemPrompt = String.format("""
+                === NGỮ CẢNH CHÍNH SÁCH (Tài liệu từ hệ thống RAG) ===
+                %s
+                
+                === HƯỚNG DẪN ===
+                1. Hãy đóng vai trợ lý AI của MemeShop.
+                2. CHỈ sử dụng thông tin từ 'NGỮ CẢNH CHÍNH SÁCH' ở trên để trả lời câu hỏi.
+                3. Tuyệt đối KHÔNG BỊA ĐẶT chính sách.
+                4. Nếu câu hỏi không được đề cập trong ngữ cảnh, hãy xin lỗi và đề nghị liên hệ support@myweb.com.
+                5. Trả lời ngắn gọn, thân thiện, dùng bullet points.
+                """, policyContext);
+
+        String response = llmService.generateResponse(systemPrompt, userMessage, history);
+
+        return builder
+                .response(response)
+                .quickReplies(Arrays.asList(
+                        QuickReply.builder().label("🔄 Đổi trả").value("tôi muốn đổi trả hàng").build(),
+                        QuickReply.builder().label("🚚 Phí ship").value("phí giao hàng bao nhiêu").build(),
+                        QuickReply.builder().label("💳 Thanh toán").value("có thể thanh toán bằng cách nào").build()))
+                .build();
+    }
+
+    // =========================================================================
+    // Handler: Order Tracking
+    // =========================================================================
+
+    private ChatResponse handleOrderTracking(ChatResponse.ChatResponseBuilder builder,
+                                              String userMessage, List<ChatTurn> history, Long userId) {
+        // Extract order ID từ message (giữ logic cũ, đã hoạt động tốt)
+        String orderIdStr = extractOrderId(userMessage);
+
+        // CASE 1: User đã login, không nhập mã → xem danh sách đơn
+        if (orderIdStr == null && userId != null) {
+            return handleListOrders(builder, userId);
+        }
+
+        // CASE 2: Có mã đơn cụ thể
         if (orderIdStr != null) {
-            try {
-                Long orderId = Long.parseLong(orderIdStr);
-                Optional<Order> orderOpt = orderRepository.findById(orderId);
+            return handleSingleOrder(builder, orderIdStr, userId, userMessage, history);
+        }
 
-                if (orderOpt.isPresent()) {
-                    Order order = orderOpt.get();
+        // CASE 3: Chưa login, không có mã đơn
+        String response = llmService.generateResponse(
+                "User hỏi về đơn hàng nhưng chưa đăng nhập và chưa cung cấp mã đơn. " +
+                "Hãy hướng dẫn họ đăng nhập hoặc cung cấp mã đơn (VD: 'đơn 123'). Ngắn gọn.",
+                userMessage, history);
 
-                    // Security check
-                    if (userId == null) {
-                        return builder
-                                .response(
-                                        "Bạn cần **đăng nhập** để xem chi tiết đơn hàng này. Vui lòng đăng nhập và thử lại nhé! 🔒")
-                                .requiresAuth(true)
-                                .build();
-                    }
+        return builder
+                .response(response)
+                .requiresAuth(true)
+                .quickReplies(List.of(
+                        QuickReply.builder().label("Đăng nhập").value("tôi muốn đăng nhập").icon("🔐").build()))
+                .build();
+    }
 
-                    if (!order.getUser().getId().equals(userId)) {
-                        return builder
-                                .response("⚠️ Đơn hàng #" + orderId
-                                        + " không thuộc về tài khoản của bạn. Vui lòng kiểm tra lại mã đơn hàng.")
-                                .build();
-                    }
+    private ChatResponse handleListOrders(ChatResponse.ChatResponseBuilder builder, Long userId) {
+        Pageable pageable = PageRequest.of(0, 5);
+        Page<Order> page = orderRepository.findByUser_IdOrderByCreatedAtDesc(userId, pageable);
 
-                    String statusMessage = getOrderStatusMessage(order);
+        if (page.isEmpty()) {
+            return builder.response("Bạn chưa có đơn hàng nào tại MemeShop. 🛍️\nHãy khám phá sản phẩm và mua sắm nhé!")
+                    .quickReplies(List.of(QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build()))
+                    .build();
+        }
 
-                    Map<String, Object> orderData = new HashMap<>();
-                    orderData.put("orderId", order.getId());
-                    orderData.put("status", order.getStatus());
-                    orderData.put("paymentStatus", order.getPaymentStatus());
-                    orderData.put("totalAmount", order.getTotalAmount());
-                    orderData.put("createdAt", order.getCreatedAt());
+        NumberFormat vndFormat = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("vi-VN"));
+        StringBuilder msg = new StringBuilder("📦 **Đơn hàng gần đây của bạn:**\n\n");
+        for (Order o : page.getContent()) {
+            msg.append(String.format("• Đơn #%d — %s — %s\n",
+                    o.getId(), getStatusEmoji(o.getStatus().name()) + " " + o.getStatus(),
+                    vndFormat.format(o.getTotalAmount())));
+        }
+        msg.append("\n💡 Hỏi tôi về 'đơn 123' để xem chi tiết bất kỳ đơn nào!");
 
-                    return builder
-                            .response(statusMessage)
-                            .data(Map.of("order", orderData))
-                            .quickReplies(Arrays.asList(
-                                    QuickReply.builder().label("Xem chi tiết").value("chi tiết đơn " + orderId).build(),
-                                    QuickReply.builder().label("Hủy đơn hàng").value("hủy đơn " + orderId).build()))
-                            .build();
-                } else {
-                    return builder
-                            .response("Không tìm thấy đơn hàng #" + orderId + ". Vui lòng kiểm tra lại mã đơn hàng. 🔍")
-                            .build();
-                }
-            } catch (NumberFormatException e) {
-                return builder
-                        .response("Mã đơn hàng không hợp lệ. Vui lòng nhập số đơn hàng. 📝")
-                        .build();
+        List<Map<String, Object>> ordersData = page.getContent().stream().map(o -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", o.getId());
+            m.put("status", o.getStatus().toString());
+            m.put("totalAmount", o.getTotalAmount());
+            m.put("createdAt", o.getCreatedAt());
+            return m;
+        }).collect(Collectors.toList());
+
+        List<QuickReply> replies = page.getContent().stream().limit(3).map(o ->
+                QuickReply.builder().label("Xem đơn #" + o.getId()).value("đơn " + o.getId()).icon("📦").build()
+        ).collect(Collectors.toList());
+
+        return builder.response(msg.toString())
+                .data(Map.of("orders", ordersData))
+                .quickReplies(replies)
+                .build();
+    }
+
+    private ChatResponse handleSingleOrder(ChatResponse.ChatResponseBuilder builder,
+                                            String orderIdStr, Long userId,
+                                            String userMessage, List<ChatTurn> history) {
+        try {
+            Long orderId = Long.parseLong(orderIdStr);
+            Optional<Order> orderOpt = orderRepository.findById(orderId);
+
+            if (orderOpt.isEmpty()) {
+                return builder.response(String.format(
+                        "Không tìm thấy đơn hàng #%d. 🔍 Vui lòng kiểm tra lại mã đơn hoặc liên hệ support.", orderId)).build();
             }
+
+            Order order = orderOpt.get();
+
+            // Security check
+            if (userId == null) {
+                return builder
+                        .response("🔒 Vui lòng đăng nhập để xem chi tiết đơn hàng #" + orderId + ".")
+                        .requiresAuth(true).build();
+            }
+
+            if (!order.getUser().getId().equals(userId)) {
+                return builder.response("⚠️ Đơn hàng #" + orderId + " không thuộc về tài khoản của bạn.").build();
+            }
+
+            // LLM tổng hợp status message tự nhiên
+            String orderInfo = String.format(
+                    "Đơn hàng #%d, trạng thái: %s, tổng tiền: %.0f VNĐ, đặt lúc: %s",
+                    order.getId(), order.getStatus(), order.getTotalAmount(), order.getCreatedAt());
+
+            String systemPrompt = "Thông báo trạng thái đơn hàng ngắn gọn, thân thiện dựa trên thông tin sau: " + orderInfo;
+            String response = llmService.generateResponse(systemPrompt, userMessage, history);
+
+            Map<String, Object> orderData = new LinkedHashMap<>();
+            orderData.put("id", order.getId());
+            orderData.put("status", order.getStatus());
+            orderData.put("paymentStatus", order.getPaymentStatus());
+            orderData.put("totalAmount", order.getTotalAmount());
+            orderData.put("createdAt", order.getCreatedAt());
+
+            return builder.response(response)
+                    .data(Map.of("order", orderData))
+                    .quickReplies(List.of(
+                            QuickReply.builder().label("Xem chi tiết").value("chi tiết đơn " + orderId).build()))
+                    .build();
+
+        } catch (NumberFormatException e) {
+            return builder.response("Mã đơn hàng không hợp lệ. Vui lòng nhập số, ví dụ: 'đơn 123' 📝").build();
+        }
+    }
+
+    // =========================================================================
+    // Handler: Other / Fallback
+    // =========================================================================
+
+    private ChatResponse handleOther(ChatResponse.ChatResponseBuilder builder,
+                                      String userMessage, List<ChatTurn> history) {
+        String systemPrompt = """
+                User hỏi một câu không rõ ràng hoặc ngoài phạm vi hỗ trợ.
+                Hãy:
+                1. Thừa nhận nhẹ nhàng rằng bạn không chắc ý họ muốn gì
+                2. Gợi ý 2-3 điều bạn CÓ THỂ giúp (sản phẩm, đơn hàng, chính sách)
+                3. Hỏi họ muốn làm gì
+                Giữ ngắn gọn, không quá 4 câu.
+                """;
+
+        String response = llmService.generateResponse(systemPrompt, userMessage, history);
+
+        return builder
+                .response(response)
+                .quickReplies(Arrays.asList(
+                        QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build(),
+                        QuickReply.builder().label("📦 Đơn hàng").value("xem đơn hàng của tôi").build(),
+                        QuickReply.builder().label("💬 Liên hệ").value("tôi muốn liên hệ support").icon("💬").build()))
+                .build();
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    /**
+     * Tìm kiếm sản phẩm nâng cao bằng ProductSpecifications (Tuần 4)
+     */
+    private List<Product> searchProductsAdvanced(String keyword, String categorySlug, Double minPrice, Double maxPrice, String brand, Double minRating, int limit) {
+        log.info("Advanced Search: kw='{}', cat='{}', brand='{}', minPrice={}, maxPrice={}, minRating={}",
+                  keyword, categorySlug, brand, minPrice, maxPrice, minRating);
+                  
+        Pageable pageable = PageRequest.of(0, limit);
+        Specification<Product> spec = ProductSpecifications.search(keyword, categorySlug, minPrice, maxPrice, brand, minRating);
+        
+        Page<Product> page = productRepository.findAll(spec, pageable);
+        List<Product> results = new ArrayList<>(page.getContent());
+
+        // Nếu ko tìm được bằng filter nghiêm ngặt, thử nới lỏng từ khóa
+        if (results.isEmpty() && keyword != null && !keyword.isBlank()) {
+             log.info("No results found, relaxing search constraints...");
+             Specification<Product> relaxedSpec = ProductSpecifications.search(keyword, null, null, null, null, null);
+             results = new ArrayList<>(productRepository.findAll(relaxedSpec, pageable).getContent());
         }
 
-        // CASE 3: Chưa login và không có ID
-        return builder
-                .response(
-                        "Vui lòng **đăng nhập** để xem lịch sử đơn hàng, hoặc cung cấp mã đơn (VD: 'đơn 123') để tra cứu nhanh. 🔒")
-                .requiresAuth(userId == null)
-                .build();
+        // Sort by sold count in memory (for top K constraint) 
+        // Trong DB lớn nên sort ngay trong PageRequest, nhưng với limit=5 thì sort List vẫn ok.
+        results.sort((a, b) -> Integer.compare(
+                b.getSoldCount() != null ? b.getSoldCount() : 0,
+                a.getSoldCount() != null ? a.getSoldCount() : 0));
+
+        return results;
     }
 
-    private String getOrderStatusMessage(Order order) {
-        String baseMessage = String.format("Đơn hàng #%d của bạn: ", order.getId());
+    /**
+     * Kiểm tra xem câu hỏi hiện tại có phải follow-up về sản phẩm đã bàn không.
+     */
+    private boolean isProductFollowUp(String userMessage, List<ChatTurn> history) {
+        if (history == null || history.isEmpty()) return false;
+        String lastIntent = contextService.getLastIntent(
+                history.isEmpty() ? "" : ""); // Sẽ dùng sessionId thực trong final version
 
-        switch (order.getStatus()) {
-            case PENDING:
-                return baseMessage + "đang chờ xác nhận. ⏳";
-            case CONFIRMED:
-                return baseMessage + "đã được xác nhận và đang chuẩn bị. 📦";
-            case PACKED:
-                return baseMessage + "đã đóng gói, sẵn sàng giao. 📦";
-            case SHIPPED:
-                return baseMessage + "đang trên đường giao đến bạn. 🚚";
-            case DELIVERED:
-                return baseMessage + "đã giao thành công. ✅";
-            case CANCELED:
-                return baseMessage + "đã bị hủy. ❌";
-            case RETURN_REQUESTED:
-                return baseMessage + "đang yêu cầu trả hàng. 🔄";
-            case RETURNED:
-                return baseMessage + "đã trả hàng. ↩️";
-            case REFUNDED:
-                return baseMessage + "đã hoàn tiền. 💰";
-            default:
-                return baseMessage + "đang được xử lý.";
-        }
+        String msgLower = userMessage.toLowerCase();
+        return msgLower.contains("con nào") || msgLower.contains("cái nào") ||
+               msgLower.contains("loại nào") || msgLower.contains("model nào") ||
+               msgLower.contains("hơn không") || msgLower.contains("tốt hơn") ||
+               (msgLower.contains("nó") && "product".equals(lastIntent));
     }
 
-    private ChatResponse handlePaymentInfo(ChatResponse.ChatResponseBuilder builder) {
-        String response = "💳 **Phương thức thanh toán của MyWeb:**\n\n" +
-                "✅ **COD** - Thanh toán khi nhận hàng\n" +
-                "✅ **VNPay** - Thanh toán qua thẻ ATM/Visa/MasterCard/QR Code\n\n" +
-                "Tất cả đều an toàn và bảo mật! 🔒";
-
-        return builder
-                .response(response)
-                .quickReplies(Arrays.asList(
-                        QuickReply.builder().label("Hướng dẫn thanh toán VNPay").value("hướng dẫn vnpay").build(),
-                        QuickReply.builder().label("Thanh toán COD").value("cod là gì").build()))
-                .build();
+    /**
+     * Trích xuất order ID từ message: "đơn 123", "#456", "order 789"
+     */
+    private String extractOrderId(String message) {
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?:đơn|order|#)\\s*(\\d+)");
+        java.util.regex.Matcher m = p.matcher(message.toLowerCase());
+        return m.find() ? m.group(1) : null;
     }
 
-    private ChatResponse handleShippingInfo(ChatResponse.ChatResponseBuilder builder) {
-        String response = "🚚 **Chính sách giao hàng:**\n\n" +
-                "📦 **Miễn phí** giao hàng đơn từ 500.000đ\n" +
-                "⏱️ **Giao nhanh** trong 2-3 ngày\n" +
-                "🏙️ Nội thành: 1-2 ngày\n" +
-                "🌏 Ngoại thành: 3-5 ngày\n\n" +
-                "Kiểm tra hàng trước khi thanh toán (COD)!";
-
-        return builder
-                .response(response)
-                .quickReplies(Arrays.asList(
-                        QuickReply.builder().label("Phí ship").value("phí ship bao nhiêu").build(),
-                        QuickReply.builder().label("Thời gian giao").value("giao hàng bao lâu").build()))
-                .build();
-    }
-
-    private ChatResponse handleVoucherInfo(ChatResponse.ChatResponseBuilder builder) {
-        String response = "🎫 **Voucher giảm giá:**\n\n" +
-                "💰 Chúng mình thường xuyên có các chương trình khuyến mãi!\n" +
-                "🔔 Đăng ký nhận tin để không bỏ lỡ voucher mới nhất\n" +
-                "🎁 Tích điểm mua sắm để đổi voucher\n\n" +
-                "Bạn có thể xem voucher khả dụng trong giỏ hàng khi thanh toán nhé!";
-
-        return builder
-                .response(response)
-                .quickReplies(Arrays.asList(
-                        QuickReply.builder().label("Xem voucher").value("voucher hiện có").build(),
-                        QuickReply.builder().label("Cách sử dụng").value("cách dùng voucher").build()))
-                .build();
-    }
-
-    private ChatResponse handleContact(ChatResponse.ChatResponseBuilder builder) {
-        String response = "📞 **Liên hệ với chúng mình:**\n\n" +
-                "📧 Email: support@myweb.com\n" +
-                "📱 Hotline: 1900-xxxx\n" +
-                "⏰ Làm việc: 8:00 - 22:00 (T2-CN)\n\n" +
-                "Hoặc bạn có thể để lại tin nhắn, team sẽ phản hồi sớm nhất!";
-
-        return builder
-                .response(response)
-                .build();
-    }
-
-    private ChatResponse handleFallback(ChatResponse.ChatResponseBuilder builder, ChatbotKnowledge knowledge) {
-        if (knowledge != null && knowledge.getResponses() != null && !knowledge.getResponses().isEmpty()) {
-            // Get random response from knowledge base
-            List<String> responses = knowledge.getResponses();
-            String response = responses.get(new Random().nextInt(responses.size()));
-            return builder.response(response).build();
-        }
-
-        // Default fallback
-        String response = "Xin lỗi, mình chưa hiểu rõ câu hỏi của bạn. 😅\n" +
-                "Bạn có thể hỏi mình về:\n" +
-                "• Sản phẩm\n" +
-                "• Đơn hàng\n" +
-                "• Thanh toán\n" +
-                "• Giao hàng\n" +
-                "• Voucher";
-
-        return builder
-                .response(response)
-                .quickReplies(Arrays.asList(
-                        QuickReply.builder().label("Tìm sản phẩm").value("tìm sản phẩm").build(),
-                        QuickReply.builder().label("Kiểm tra đơn hàng").value("kiểm tra đơn hàng").build(),
-                        QuickReply.builder().label("Liên hệ").value("liên hệ").build()))
-                .build();
+    private String getStatusEmoji(String status) {
+        return switch (status) {
+            case "PENDING"          -> "⏳";
+            case "CONFIRMED"        -> "✅";
+            case "SHIPPED"          -> "🚚";
+            case "DELIVERED"        -> "✅";
+            case "CANCELED"         -> "❌";
+            case "RETURN_REQUESTED" -> "🔄";
+            default                  -> "📦";
+        };
     }
 
     private void saveChatMessage(ChatRequest request, ChatResponse response) {
         try {
-            // Save user message
-            ChatMessage userMessage = ChatMessage.builder()
+            chatMessageRepository.save(ChatMessage.builder()
                     .sessionId(request.getSessionId())
                     .message(request.getMessage())
                     .response("")
                     .messageType(ChatMessage.MessageType.USER)
                     .userId(request.getUserId())
-                    .build();
-            chatMessageRepository.save(userMessage);
+                    .build());
 
-            // Save bot response
-            ChatMessage botMessage = ChatMessage.builder()
+            chatMessageRepository.save(ChatMessage.builder()
                     .sessionId(request.getSessionId())
                     .message(request.getMessage())
                     .response(response.getResponse())
                     .messageType(ChatMessage.MessageType.BOT)
                     .intent(response.getIntent())
                     .userId(request.getUserId())
-                    .build();
-            chatMessageRepository.save(botMessage);
-
+                    .build());
         } catch (Exception e) {
             log.error("Error saving chat message", e);
-        }
-    }
-
-    @PostConstruct
-    @Override
-    public void initializeKnowledgeBase() {
-        // Check if knowledge base is empty
-        if (knowledgeRepository.count() > 0) {
-            log.info("Knowledge base already initialized");
-            return;
-        }
-
-        log.info("Initializing chatbot knowledge base...");
-
-        // Greeting
-        knowledgeRepository.save(ChatbotKnowledge.builder()
-                .intent("greeting")
-                .patterns(Arrays.asList("xin chào", "hello", "hi", "chào", "hey", "chào bạn"))
-                .responses(Arrays.asList("Xin chào! Tôi có thể giúp gì cho bạn?"))
-                .priority(10)
-                .build());
-
-        // Product inquiry
-        knowledgeRepository.save(ChatbotKnowledge.builder()
-                .intent("product_inquiry")
-                .patterns(Arrays.asList(
-                        "tìm sản phẩm", "tìm *", "có * không", "* giá bao nhiêu",
-                        "sản phẩm *", "mua *", "xem *"))
-                .responses(Arrays.asList("Để tìm sản phẩm, hãy cho mình biết tên hoặc loại sản phẩm bạn cần!"))
-                .requiresData(true)
-                .dataSource("products")
-                .priority(8)
-                .build());
-
-        // Order tracking
-        knowledgeRepository.save(ChatbotKnowledge.builder()
-                .intent("order_tracking")
-                .patterns(Arrays.asList(
-                        "đơn hàng của tôi", "lịch sử đơn hàng", "xem đơn hàng", "đơn hàng",
-                        "đơn hàng *", "kiểm tra đơn *", "đơn *",
-                        "order *", "track *", "theo dõi đơn"))
-                .responses(Arrays.asList("Vui lòng cung cấp mã đơn hàng để kiểm tra."))
-                .requiresData(true)
-                .dataSource("orders")
-                .priority(9)
-                .build());
-
-        // Payment info
-        knowledgeRepository.save(ChatbotKnowledge.builder()
-                .intent("payment_info")
-                .patterns(Arrays.asList(
-                        "thanh toán *", "payment *", "phương thức *",
-                        "trả tiền *", "cod *", "vnpay *", "momo *"))
-                .responses(Arrays.asList("Chúng mình hỗ trợ COD, VNPay và Momo!"))
-                .priority(7)
-                .build());
-
-        // Shipping info
-        knowledgeRepository.save(ChatbotKnowledge.builder()
-                .intent("shipping_info")
-                .patterns(Arrays.asList(
-                        "giao hàng *", "ship *", "vận chuyển *",
-                        "phí ship *", "delivery *"))
-                .responses(Arrays.asList("Miễn phí ship đơn từ 500k, giao trong 2-3 ngày!"))
-                .priority(7)
-                .build());
-
-        // Voucher info
-        knowledgeRepository.save(ChatbotKnowledge.builder()
-                .intent("voucher_info")
-                .patterns(Arrays.asList(
-                        "voucher *", "mã giảm giá *", "khuyến mãi *",
-                        "giảm giá *", "coupon *"))
-                .responses(Arrays.asList("Bạn có thể xem voucher khả dụng trong giỏ hàng!"))
-                .priority(6)
-                .build());
-
-        // Contact
-        knowledgeRepository.save(ChatbotKnowledge.builder()
-                .intent("contact")
-                .patterns(Arrays.asList(
-                        "liên hệ *", "contact *", "hotline *",
-                        "email *", "gọi *", "support *"))
-                .responses(Arrays.asList("Email: support@myweb.com, Hotline: 1900-xxxx"))
-                .priority(5)
-                .build());
-
-        log.info("Knowledge base initialized successfully!");
-    }
-
-    // Inner class for intent detection result
-    private static class IntentResult {
-        private final String intent;
-        private final ChatbotKnowledge knowledge;
-        private final Map<String, String> entities;
-
-        public IntentResult(String intent, ChatbotKnowledge knowledge, Map<String, String> entities) {
-            this.intent = intent;
-            this.knowledge = knowledge;
-            this.entities = entities;
-        }
-
-        public String getIntent() {
-            return intent;
-        }
-
-        public ChatbotKnowledge getKnowledge() {
-            return knowledge;
-        }
-
-        public Map<String, String> getEntities() {
-            return entities;
         }
     }
 }

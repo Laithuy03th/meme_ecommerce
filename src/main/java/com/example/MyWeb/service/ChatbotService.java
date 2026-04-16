@@ -15,7 +15,7 @@ public interface ChatbotService {
     /**
      * Get chat history for a session
      */
-    List<ChatResponse> getChatHistory(String sessionId);
+    List<com.example.MyWeb.model.ChatMessage> getChatHistory(String sessionId);
 
     /**
      * Initialize chatbot knowledge base

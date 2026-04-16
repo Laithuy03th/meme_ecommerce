@@ -151,9 +151,9 @@ public class ChatbotController {
                                         ]
                                         """)))
         })
-        public ResponseEntity<List<ChatResponse>> getChatHistory(
+        public ResponseEntity<List<com.example.MyWeb.model.ChatMessage>> getChatHistory(
                         @Parameter(description = "Session ID (UUID)", example = "a1b2c3d4-e5f6-7890-abcd-ef1234567890") @PathVariable String sessionId) {
-                List<ChatResponse> history = chatbotService.getChatHistory(sessionId);
+                List<com.example.MyWeb.model.ChatMessage> history = chatbotService.getChatHistory(sessionId);
                 return ResponseEntity.ok(history);
         }
 
