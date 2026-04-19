@@ -95,23 +95,10 @@ public class GeminiLlmService implements LlmService {
 
     @Override
     public String generateResponse(String systemPrompt, String userMessage, List<ChatTurn> history) {
-        String conversationHistory = buildConversationFormatted(history);
-
-        String fullPrompt = String.format("""
-                %s
-                
-                %s
-                
-                === LỊCH SỬ HỘI THOẠI ===
-                %s
-                
-                === CÂU HỎI HIỆN TẠI ===
-                User: %s
-                
-                Trợ lý:""",
-                SYSTEM_CONTEXT, systemPrompt, conversationHistory, userMessage);
-
-        return callGeminiAPI(fullPrompt, 1024, false);
+        // Build proper Gemini multi-turn contents — đây là cách đúng thay vì nhồi history vào 1 text blob
+        java.util.List<java.util.Map<String, Object>> contents =
+                buildMultiTurnContents(history, systemPrompt, userMessage);
+        return callGeminiMultiTurn(contents, 1024);
     }
 
     @Override
@@ -345,6 +332,97 @@ public class GeminiLlmService implements LlmService {
               .append(": ").append(turn.getContent()).append("\n");
         }
         return sb.toString().trim();
+    }
+
+    /**
+     * Build Gemini multi-turn contents array từ conversation history.
+     * Gemini API yêu cầu contents là list các {role, parts} xen kẽ nhau (user/model).
+     * Không được có 2 turn cùng role liên tiếp, và phải bắt đầu bằng user.
+     */
+    private java.util.List<java.util.Map<String, Object>> buildMultiTurnContents(
+            List<ChatTurn> history, String taskPrompt, String userMessage) {
+
+        java.util.List<java.util.Map<String, Object>> contents = new java.util.ArrayList<>();
+
+        if (history != null && !history.isEmpty()) {
+            int start = Math.max(0, history.size() - 6); // tối đa 6 turn gần nhất
+            // Gemini yêu cầu bắt đầu bằng role "user" — bỏ qua turn đầu nếu là model
+            while (start < history.size() && "model".equals(history.get(start).getRole())) {
+                start++;
+            }
+            for (int i = start; i < history.size(); i++) {
+                ChatTurn turn = history.get(i);
+                java.util.Map<String, Object> turnMap = new java.util.LinkedHashMap<>();
+                turnMap.put("role", turn.getRole()); // "user" hoặc "model"
+                turnMap.put("parts", java.util.List.of(java.util.Map.of("text", turn.getContent())));
+                contents.add(turnMap);
+            }
+        }
+
+        // Turn hiện tại: kết hợp task-specific systemPrompt + user message thành 1 user turn
+        String currentText = (taskPrompt == null || taskPrompt.isBlank())
+                ? userMessage
+                : taskPrompt + "\n\n=== CÂU Hỏi CỦA KHÁCH HÀNG ===\n" + userMessage;
+
+        java.util.Map<String, Object> currentTurn = new java.util.LinkedHashMap<>();
+        currentTurn.put("role", "user");
+        currentTurn.put("parts", java.util.List.of(java.util.Map.of("text", currentText)));
+        contents.add(currentTurn);
+
+        return contents;
+    }
+
+    /**
+     * Gọi Gemini API với multi-turn conversation format đúng chuẩn.
+     * Dùng systemInstruction riêng biệt (Gemini 1.5+) thay vì nhồi vào prompt text.
+     */
+    private String callGeminiMultiTurn(
+            java.util.List<java.util.Map<String, Object>> contents, int maxTokens) {
+
+        String url = String.format("%s/%s:generateContent?key=%s", apiBaseUrl, chatModel, apiKey);
+
+        String requestBody;
+        try {
+            java.util.Map<String, Object> bodyMap = new java.util.LinkedHashMap<>();
+            // systemInstruction: Gemini 1.5 xử lý tốt hơn so với nhồi vào prompt
+            bodyMap.put("systemInstruction", java.util.Map.of(
+                    "parts", java.util.List.of(java.util.Map.of("text", SYSTEM_CONTEXT))));
+            bodyMap.put("contents", contents);
+            bodyMap.put("generationConfig", new java.util.HashMap<>() {{
+                put("temperature", 0.7);
+                put("maxOutputTokens", maxTokens);
+                put("topP", 0.8);
+            }});
+            bodyMap.put("safetySettings", java.util.List.of(
+                    java.util.Map.of("category", "HARM_CATEGORY_HARASSMENT", "threshold", "BLOCK_ONLY_HIGH"),
+                    java.util.Map.of("category", "HARM_CATEGORY_HATE_SPEECH", "threshold", "BLOCK_ONLY_HIGH")
+            ));
+            requestBody = objectMapper.writeValueAsString(bodyMap);
+        } catch (Exception e) {
+            log.error("Failed to serialize Gemini multi-turn request body", e);
+            return getFallbackResponse();
+        }
+
+        Request request = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(requestBody, MediaType.get("application/json; charset=utf-8")))
+                .addHeader("Content-Type", "application/json")
+                .build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                String errorBody = response.body() != null ? response.body().string() : "no body";
+                log.error("Gemini multi-turn API error: HTTP {} — {}", response.code(), errorBody);
+                if (response.code() == 429) {
+                    return "Ỉ ơi, hệ thống đang bận xử lý nhiều yêu cầu. Bạn đợi tôi một chút rồi thử lại nhé! ⏳";
+                }
+                return getFallbackResponse();
+            }
+            return parseGeminiResponse(response.body().string());
+        } catch (IOException e) {
+            log.error("Failed to call Gemini multi-turn API: {}", e.getMessage());
+            return getFallbackResponse();
+        }
     }
 
     private String getFallbackResponse() {

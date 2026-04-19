@@ -62,7 +62,10 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     @Override
-    @Transactional
+    // KHÔNG dùng @Transactional ở đây: phương thức này gọi API ngoài (Gemini, 15-30s)
+    // lẫn với DB ops. Nếu giữ @Transactional, mọi RuntimeException từ Gemini sẽ mark
+    // transaction là rollback-only → gây lỗi "Transaction silently rolled back" ở câu thứ 2 trở đi.
+    // Các repository method đã có @Transactional riêng của chúng.
     public ChatResponse processMessage(ChatRequest request) {
         String sessionId = request.getSessionId();
         String userMessage = request.getMessage().trim();
@@ -71,6 +74,17 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         // 1. Load conversation context
         List<ChatTurn> history = contextService.getHistory(sessionId);
+
+        // Nâng cấp: Nếu context rỗng (hôm sau user quay lại hoặc server vừa restart),
+        // tiến hành phục hồi lịch sử gần nhất từ Database để AI giữ được ngữ cảnh cũ
+        if (history.isEmpty()) {
+            List<ChatMessage> dbHistory = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+            if (!dbHistory.isEmpty()) {
+                contextService.restoreFromDb(sessionId, dbHistory);
+                history = contextService.getHistory(sessionId);
+                log.info("[Chatbot] Restored {} turns from DB for session {}", history.size(), sessionId);
+            }
+        }
 
         // 2. Classify intent via Gemini LLM
         String intent;
@@ -86,13 +100,23 @@ public class ChatbotServiceImpl implements ChatbotService {
         // 3. Update context with user turn
         contextService.addUserTurn(sessionId, userMessage);
 
-        // 4. Generate response based on intent
-        ChatResponse response = routeAndRespond(intent, userMessage, history, request);
+        // 4. Generate response based on intent (bọc khỏi exception nếu handler bị lỗi)
+        ChatResponse response;
+        try {
+            response = routeAndRespond(intent, userMessage, history, request);
+        } catch (Exception e) {
+            log.error("[Chatbot] routeAndRespond failed for intent '{}': {}", intent, e.getMessage(), e);
+            response = ChatResponse.builder()
+                    .sessionId(sessionId)
+                    .intent(intent)
+                    .response("Xin lỗi, tôi gặp sự cố khi xử lý yêu cầu. Bạn vui lòng thử lại sau nhé! 🙏")
+                    .build();
+        }
 
         // 5. Update context with bot response
         contextService.addBotTurn(sessionId, response.getResponse(), intent);
 
-        // 6. Save to DB (async-safe)
+        // 6. Save to DB trong transaction riêng biệt
         saveChatMessage(request, response);
 
         return response;
@@ -136,7 +160,7 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         return switch (intent) {
             case "greeting" -> handleGreeting(builder, userMessage, history);
-            case "product"  -> handleProductSearch(builder, userMessage, history);
+            case "product"  -> handleProductSearch(builder, userMessage, history, request.getSessionId());
             case "policy"   -> handlePolicyQuestion(builder, userMessage, history);
             case "order"    -> handleOrderTracking(builder, userMessage, history, request.getUserId());
             default         -> handleOther(builder, userMessage, history);
@@ -177,9 +201,10 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     private ChatResponse handleProductSearch(ChatResponse.ChatResponseBuilder builder,
-                                              String userMessage, List<ChatTurn> history) {
+                                              String userMessage, List<ChatTurn> history,
+                                              String sessionId) {
         // 1. Kiểm tra follow-up: "con nào pin hơn?" — dựa vào context
-        boolean isFollowUp = isProductFollowUp(userMessage, history);
+        boolean isFollowUp = isProductFollowUp(userMessage, history, sessionId);
 
         // 2. LLM extract search constraints
         String constraintsJson;
@@ -198,6 +223,7 @@ public class ChatbotServiceImpl implements ChatbotService {
         Double maxPrice = null;
         Double minPrice = null;
         Double minRating = null;
+        boolean llmSaysFollowUp = false; // khai báo ở đây để dùng được sau try block
 
         try {
             JsonNode constraints = objectMapper.readTree(constraintsJson);
@@ -220,11 +246,19 @@ public class ChatbotServiceImpl implements ChatbotService {
                 minRating = constraints.path("minRating").asDouble();
             }
             
-            // Xử lý isFollowUp nếu đang ở bối cảnh trước đó
-            if (constraints.path("isFollowUp").asBoolean(false) && keyword == null) {
-                // Nếu là follow-up mà ko có keyword, có thể khách đang hỏi tiếp về kết quả cũ
-                // Ta có thể giữ lại keyword trước đó từ context (ở đây đơn giản hóa)
-                log.info("Follow-up detected: trying to maintain product context");
+            // Xử lý isFollowUp: nếu là follow-up mà không có keyword mới → reuse keyword từ history
+            llmSaysFollowUp = constraints.path("isFollowUp").asBoolean(false); // assign (không declare lại)
+            if ((llmSaysFollowUp || isFollowUp) && keyword == null) {
+                // Quét lịch sử tìm câu hỏi sản phẩm gần nhất của user (không phải câu hiện tại)
+                for (int i = history.size() - 1; i >= 0; i--) {
+                    ChatTurn turn = history.get(i);
+                    if ("user".equals(turn.getRole())
+                            && !turn.getContent().equalsIgnoreCase(userMessage)) {
+                        keyword = turn.getContent();
+                        log.info("[FollowUp] Reusing previous context keyword from history: '{}'", keyword);
+                        break;
+                    }
+                }
             }
             
         } catch (Exception e) {
@@ -262,24 +296,33 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         // 6. LLM tổng hợp câu trả lời tự nhiên
         String productListText = products.stream()
-                .map(p -> String.format("- %s (%s): %.0f VNĐ",
+                .map(p -> String.format("- %s (%s): %.0f VNĐ, đánh giá: %.1f★",
                         p.getName(),
                         p.getBrand() != null ? p.getBrand() : "N/A",
-                        p.getBasePrice()))
+                        p.getBasePrice(),
+                        p.getAverageRating() != null ? p.getAverageRating() : 0.0))
                 .collect(Collectors.joining("\n"));
+
+        // Phát hiện query quá lứ và chưa có ràng buộc cụ thể → hỏi ngược để làm rõ nội dung (thính năng cốt lõi trong báo cáo)
+        boolean hasSpecificConstraints = (maxPrice != null || minPrice != null
+                || brand != null || minRating != null || categorySlug != null);
+        boolean shouldClarify = !isFollowUp && !llmSaysFollowUp
+                && !hasSpecificConstraints && products.size() >= 4;
+
+        String clarifyInstruction = shouldClarify
+                ? "\nQUAN TRỌ NG: Sau khi nêu 2-3 sản phẩm tiêu biểu, kết thúc bằng ĐÚNG 1 câu hỏi ngắn để làm rõ nhu cầu (ví dụ: ngân sách, thương hiệu, hoặc tính năng quan trọng nhất). Đặt câu hỏi trực tiếp cuối câu trả lời."
+                : "\nKết thúc bằng gợi ý xem chi tiết hoặc hỏi thêm về nhu cầu.";
 
         String systemPrompt = String.format("""
                 === NHIỆM VỤ ===
-                Tư vấn sản phẩm cho khách hàng dựa trên danh sách tìm được từ database.
-                Nêu bật 1-2 điểm nổi bật phù hợp với nhu cầu. Ngắn gọn, thân thiện.
-                Kết thúc bằng gợi ý xem chi tiết hoặc hỏi thêm về nhu cầu.
+                Tư vấn sản phẩm cho khách hàng dựa trên danh sách tìm được từ database.%s
                 
                 === DANH SÁCH SẢN PHẨM TÌM ĐƯỢC ===
                 %s
                 
                 === YÊU CẦU CỦA KHÁCH ===
-                (Hãy đề cập đến yêu cầu này trong câu trả lời)
-                """, productListText);
+                (Hãy nhắc lại yêu cầu và tư vấn cụ thể theo nhu cầu đó)
+                """, clarifyInstruction, productListText);
 
         String response = llmService.generateResponse(systemPrompt, userMessage, history);
 
@@ -521,17 +564,22 @@ public class ChatbotServiceImpl implements ChatbotService {
 
     /**
      * Kiểm tra xem câu hỏi hiện tại có phải follow-up về sản phẩm đã bàn không.
+     * Dùng sessionId thực để lấy lastIntent từ ConversationContextService.
      */
-    private boolean isProductFollowUp(String userMessage, List<ChatTurn> history) {
+    private boolean isProductFollowUp(String userMessage, List<ChatTurn> history, String sessionId) {
         if (history == null || history.isEmpty()) return false;
-        String lastIntent = contextService.getLastIntent(
-                history.isEmpty() ? "" : ""); // Sẽ dùng sessionId thực trong final version
+
+        // Lấy intent gần nhất của bot từ in-memory context (đã fix: dùng sessionId thực)
+        String lastIntent = contextService.getLastIntent(sessionId);
 
         String msgLower = userMessage.toLowerCase();
-        return msgLower.contains("con nào") || msgLower.contains("cái nào") ||
-               msgLower.contains("loại nào") || msgLower.contains("model nào") ||
-               msgLower.contains("hơn không") || msgLower.contains("tốt hơn") ||
-               (msgLower.contains("nó") && "product".equals(lastIntent));
+        return msgLower.contains("con nào") || msgLower.contains("cái nào")
+               || msgLower.contains("loại nào") || msgLower.contains("model nào")
+               || msgLower.contains("hơn không") || msgLower.contains("tốt hơn")
+               || msgLower.contains("so sánh")
+               || msgLower.contains("cái đó") || msgLower.contains("sản phẩm đó")
+               || (msgLower.contains("nó") && "product".equals(lastIntent))
+               || (msgLower.length() < 20 && "product".equals(lastIntent)); // Câu rất ngắn trong ctx product
     }
 
     /**
@@ -555,26 +603,36 @@ public class ChatbotServiceImpl implements ChatbotService {
         };
     }
 
-    private void saveChatMessage(ChatRequest request, ChatResponse response) {
+    /**
+     * Lưu lịch sử chat vào DB.
+     * Dùng REQUIRES_NEW để transaction hoàn toàn độc lập, tránh bị nhiễm trạng thái rollback-only
+     * từ bất kỳ exception nào trong processMessage.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    protected void saveChatMessage(ChatRequest request, ChatResponse response) {
         try {
+            // Lưu tin nhắn user
             chatMessageRepository.save(ChatMessage.builder()
                     .sessionId(request.getSessionId())
                     .message(request.getMessage())
-                    .response("")
+                    .response("")                          // trường response của user turn = rỗng
                     .messageType(ChatMessage.MessageType.USER)
                     .userId(request.getUserId())
                     .build());
 
+            // Lưu phản hồi bot
             chatMessageRepository.save(ChatMessage.builder()
                     .sessionId(request.getSessionId())
                     .message(request.getMessage())
-                    .response(response.getResponse())
+                    .response(response.getResponse() != null ? response.getResponse() : "")
                     .messageType(ChatMessage.MessageType.BOT)
                     .intent(response.getIntent())
                     .userId(request.getUserId())
                     .build());
+
         } catch (Exception e) {
-            log.error("Error saving chat message", e);
+            // Không để lỗi DB lăn ra làm hỏng response trả về cho user
+            log.error("[Chatbot] Failed to save chat message to DB: {}", e.getMessage());
         }
     }
 }

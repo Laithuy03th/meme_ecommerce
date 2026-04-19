@@ -43,6 +43,8 @@ public class OrderServiceImpl implements OrderService {
         private final StockService stockService;
         private final ShippingFeeService shippingFeeService;
         private final ShippingMethodRepository shippingMethodRepository;
+        private final com.example.MyWeb.repository.OrderStatusHistoryRepository orderStatusHistoryRepository;
+        private final com.example.MyWeb.service.EmailService emailService;
 
         private OrderItemResponse toItemDto(OrderItem item) {
                 Product p = item.getProduct();
@@ -336,6 +338,9 @@ public class OrderServiceImpl implements OrderService {
                 log.info("Order created successfully: orderId={}, userId={}, totalAmount={}",
                                 savedOrder.getId(), userId, totalAmount);
 
+                orderStatusHistoryRepository.save(OrderStatusHistory.systemChange(savedOrder, null, OrderStatus.PENDING, "Order placed"));
+                emailService.sendOrderConfirmation(user.getEmail(), savedOrder.getId(), totalAmount);
+
                 // FIXED: Partial Checkout - Only remove purchased items
                 cart.getItems().removeAll(checkoutItems);
 
@@ -385,11 +390,23 @@ public class OrderServiceImpl implements OrderService {
 
         private com.example.MyWeb.dto.order.OrderDetailResponse toDetailResponse(Order order) {
                 java.util.List<com.example.MyWeb.dto.order.OrderDetailResponse.TimelineStep> timeline = new ArrayList<>();
-                timeline.add(com.example.MyWeb.dto.order.OrderDetailResponse.TimelineStep.builder()
-                                .status("Order Placed")
-                                .timestamp(order.getCreatedAt())
-                                .completed(true)
-                                .build());
+                java.util.List<OrderStatusHistory> histories = orderStatusHistoryRepository.findByOrder_IdOrderByCreatedAtAsc(order.getId());
+                
+                if (histories.isEmpty()) {
+                        timeline.add(com.example.MyWeb.dto.order.OrderDetailResponse.TimelineStep.builder()
+                                        .status("Order Placed")
+                                        .timestamp(order.getCreatedAt())
+                                        .completed(true)
+                                        .build());
+                } else {
+                        for (OrderStatusHistory h : histories) {
+                                timeline.add(com.example.MyWeb.dto.order.OrderDetailResponse.TimelineStep.builder()
+                                                .status(h.getToStatus().name() + (h.getNote() != null ? " (" + h.getNote() + ")" : ""))
+                                                .timestamp(h.getCreatedAt())
+                                                .completed(true)
+                                                .build());
+                        }
+                }
 
                 java.util.List<com.example.MyWeb.dto.order.OrderDetailResponse.OrderItemDto> items = order.getItems()
                                 .stream()
@@ -471,9 +488,13 @@ public class OrderServiceImpl implements OrderService {
                         }
                 }
 
+                OrderStatus oldStatus = order.getStatus();
                 order.setStatus(OrderStatus.CANCELED);
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
+
+                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus, OrderStatus.CANCELED, "CUSTOMER", "User canceled order"));
+                emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, "CANCELED");
 
                 log.info("Order cancelled and stock returned: orderId={}, userId={}", orderId, userId);
 
@@ -491,6 +512,7 @@ public class OrderServiceImpl implements OrderService {
                         throw new RuntimeException("Cannot request return for order with status: " + order.getStatus());
                 }
 
+                OrderStatus oldStatus = order.getStatus();
                 order.setStatus(OrderStatus.RETURN_REQUESTED);
                 // Note: We might want to append the reason to the order note or a separate
                 // field
@@ -500,6 +522,8 @@ public class OrderServiceImpl implements OrderService {
 
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
+                
+                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus, OrderStatus.RETURN_REQUESTED, "CUSTOMER", "User requested return: " + reason));
 
                 log.info("Return requested: orderId={}, userId={}, reason={}", orderId, userId, reason);
 
@@ -671,9 +695,13 @@ public class OrderServiceImpl implements OrderService {
                         }
                 }
 
+                OrderStatus oldStatus = order.getStatus();
                 order.setStatus(OrderStatus.RETURNED);
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
+                
+                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus, OrderStatus.RETURNED, "ADMIN", "Return approved"));
+                emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, "RETURNED");
 
                 log.info("Order return approved and stock returned: orderId={}", orderId);
                 return toOrderDto(order);
@@ -723,6 +751,9 @@ public class OrderServiceImpl implements OrderService {
                 order.setStatus(targetStatus);
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
+                
+                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, currentStatus, targetStatus, "ADMIN", "Status updated"));
+                emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, targetStatus.name());
                 log.info("Order status updated: orderId={}, {} -> {}", orderId, currentStatus, targetStatus);
                 return toOrderDto(order);
         }
@@ -756,5 +787,44 @@ public class OrderServiceImpl implements OrderService {
                         case RETURNED         -> "REFUNDED";
                         case CANCELED, REFUNDED -> "none (terminal state)";
                 };
+        }
+
+        @Override
+        @Transactional
+        public void systemCancelOrder(Long orderId, String reason) {
+                Order order = orderRepository.findById(orderId)
+                                .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId));
+
+                if (order.getStatus() != OrderStatus.PENDING) {
+                        return; // Only cancel PENDING
+                }
+
+                OrderStatus oldStatus = order.getStatus();
+
+                for (OrderItem item : order.getItems()) {
+                        ProductVariant variant = item.getVariant();
+                        int quantity = item.getQuantity();
+
+                        if (variant != null) {
+                                Integer currentStock = variant.getStock() != null ? variant.getStock() : 0;
+                                variant.setStock(currentStock + quantity);
+                                productVariantRepository.save(variant);
+                        } else {
+                                stockService.increaseStock(item.getProduct().getId(), quantity);
+                        }
+                }
+
+                order.setStatus(OrderStatus.CANCELED);
+                order.setUpdatedAt(LocalDateTime.now());
+                orderRepository.save(order);
+
+                orderStatusHistoryRepository.save(OrderStatusHistory.systemChange(order, oldStatus, OrderStatus.CANCELED, reason));
+                
+                log.info("System cancelled order: orderId={}, reason={}", orderId, reason);
+                try {
+                        emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, "CANCELED (" + reason + ")");
+                } catch (Exception e) {
+                        log.error("Failed to send cancellation email for order {}", orderId);
+                }
         }
 }

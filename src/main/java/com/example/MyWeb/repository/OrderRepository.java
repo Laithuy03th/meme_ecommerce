@@ -51,4 +51,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
          * Nếu đã tồn tại → trả về đơn cũ, không tạo mới.
          */
         Optional<Order> findByIdempotencyKeyAndUser_Id(String idempotencyKey, Long userId);
+
+        java.util.List<Order> findByStatusAndPaymentMethodAndPaymentStatusAndCreatedAtBefore(
+                        com.example.MyWeb.model.enums.OrderStatus status,
+                        com.example.MyWeb.model.enums.PaymentMethod paymentMethod,
+                        com.example.MyWeb.model.enums.PaymentStatus paymentStatus,
+                        java.time.LocalDateTime timeLimit);
 }

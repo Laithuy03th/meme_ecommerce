@@ -18,6 +18,10 @@ public class RagServiceImpl implements RagService {
     private final LlmService llmService;
     private final FaqDocumentRepository documentRepository;
 
+    // Ngưỡng cosine distance: 0 = giống hệt, 2 = hoàn toàn khác.
+    // 0.65 nghĩa là chỉ lấy document đủ liên quan, tránh inject context sai.
+    private static final double SIMILARITY_THRESHOLD = 0.65;
+
     @Override
     public List<FaqDocument> retrieveRelevantContext(String query, int topK) {
         log.info("RAG: Generating embedding for query: '{}'", query);
@@ -25,21 +29,30 @@ public class RagServiceImpl implements RagService {
         // 1. Tạo vector cho câu hỏi (Dùng Gemini LLM)
         float[] queryVector = llmService.embed(query);
         
-        // Cần đảm bảo vector không bị rỗng (do lỗi API)
+        // Đảm bảo vector không bị rỗng (do lỗi API)
         if (queryVector == null || queryVector.length == 0 || queryVector[0] == 0f) {
-            log.warn("Query embedding failed. Returning empty context.");
+            log.warn("RAG: Query embedding failed. Returning empty context.");
             return List.of();
         }
 
-        // 2. Format vector chuẩn để query PostgreSQL pgvector (e.g. "[0.1, 0.2, ...]")
+        // 2. Format vector chuẩn để query PostgreSQL pgvector
         String vectorString = formatVectorForQuery(queryVector);
 
-        // 3. Search DB
-        log.info("RAG: Retrieving top {} similar documents from PostgreSQL", topK);
+        // 3. Search DB với threshold để lọc kết quả không liên quan
+        log.info("RAG: Retrieving top {} documents with distance < {}", topK, SIMILARITY_THRESHOLD);
         try {
-            return documentRepository.findTopSimilarDocuments(vectorString, topK);
+            List<FaqDocument> results = documentRepository.findTopSimilarDocuments(
+                    vectorString, topK, SIMILARITY_THRESHOLD);
+            
+            if (results.isEmpty()) {
+                log.info("RAG: No documents within threshold {}. Bot will use fallback.", SIMILARITY_THRESHOLD);
+            } else {
+                log.info("RAG: Found {} relevant document(s): {}",
+                        results.size(),
+                        results.stream().map(FaqDocument::getTitle).toList());
+            }
+            return results;
         } catch (Exception e) {
-            // Rất có thể do chưa bật extension vector
             log.error("RAG pgvector search failed. Did you run 'CREATE EXTENSION vector;' in DB?", e);
             return List.of();
         }

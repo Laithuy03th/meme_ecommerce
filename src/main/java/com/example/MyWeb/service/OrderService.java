@@ -26,4 +26,6 @@ public interface OrderService {
     OrderResponse approveReturn(Long orderId);
 
     OrderResponse updateOrderStatus(Long orderId, String newStatus);
+
+    void systemCancelOrder(Long orderId, String reason);
 }

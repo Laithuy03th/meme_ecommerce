@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import com.example.MyWeb.model.ChatMessage;
 
 /**
  * Quản lý ngữ cảnh hội thoại ngắn hạn cho mỗi session.
@@ -117,6 +118,39 @@ public class ConversationContextService {
 
         if (evicted > 0) {
             log.info("Evicted {} expired chat sessions", evicted);
+        }
+    }
+
+    // =========================================================================
+    // Phục hồi từ DB (Cross-session Persistence)
+    // =========================================================================
+
+    /**
+     * Phục hồi in-memory context từ dữ liệu DB (khi user quay lại vào hôm sau hoặc sau khi server restart).
+     * Chỉ nạp tối đa `maxTurns` tin nhắn gần nhất để tránh tràn RAM và token limit.
+     */
+    public void restoreFromDb(String sessionId, List<ChatMessage> dbHistory) {
+        if (dbHistory == null || dbHistory.isEmpty()) return;
+        
+        // Chỉ lấy những tin nhắn gần nhất (tránh nhồi toàn bộ lịch sử nếu họ đã chat hàng trăm câu)
+        int keepCount = Math.min(dbHistory.size(), maxTurns);
+        List<ChatMessage> recentMessages = dbHistory.subList(dbHistory.size() - keepCount, dbHistory.size());
+        
+        for (ChatMessage msg : recentMessages) {
+            String role = msg.getMessageType() == ChatMessage.MessageType.USER ? "user" : "model";
+            String content = role.equals("user") ? msg.getMessage() : msg.getResponse();
+            
+            // Bỏ qua tin nhắn rỗng (ví dụ: dummy DB entries)
+            if (content == null || content.trim().isEmpty()) continue;
+            
+            addTurn(sessionId, ChatTurn.builder()
+                    .role(role)
+                    .content(content)
+                    .intent(msg.getIntent())
+                    .timestamp(msg.getCreatedAt() != null ? 
+                            msg.getCreatedAt().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() : 
+                            System.currentTimeMillis())
+                    .build());
         }
     }
 
