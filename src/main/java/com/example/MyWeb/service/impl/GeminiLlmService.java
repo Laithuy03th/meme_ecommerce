@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Triển khai LlmService sử dụng Google Gemini API (gemini-1.5-flash).
+ * Triển khai LlmService sử dụng Google Gemini API (gemini-flash-latest).
  *
  * Tài liệu API: https://ai.google.dev/api/generate-content
  * Lấy API key miễn phí: https://aistudio.google.com/app/apikey
@@ -26,7 +26,7 @@ public class GeminiLlmService implements LlmService {
     @Value("${gemini.api.key}")
     private String apiKey;
 
-    @Value("${gemini.model.chat:gemini-1.5-flash}")
+    @Value("${gemini.model.chat:gemini-flash-latest}")
     private String chatModel;
 
     @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta/models}")
@@ -59,10 +59,10 @@ public class GeminiLlmService implements LlmService {
 
         String prompt = String.format("""
                 %s
-                
+
                 === NGỮ CẢNH HỘI THOẠI GẦN ĐÂY ===
                 %s
-                
+
                 === NHIỆM VỤ ===
                 Phân loại câu hỏi sau vào ĐÚNG MỘT trong các nhóm:
                 - "product"  : tìm kiếm sản phẩm, hỏi giá, so sánh, gợi ý mua hàng
@@ -70,9 +70,9 @@ public class GeminiLlmService implements LlmService {
                 - "order"    : tra cứu đơn hàng, trạng thái đơn, lịch sử mua hàng
                 - "greeting" : chào hỏi, hỏi thông tin cửa hàng, liên hệ
                 - "other"    : không rõ ý định hoặc nằm ngoài các nhóm trên
-                
+
                 Câu hỏi: "%s"
-                
+
                 Chỉ trả lời DUY NHẤT một từ trong ngoặc kép, ví dụ: product
                 Không giải thích thêm, không thêm dấu câu.
                 """,
@@ -82,10 +82,11 @@ public class GeminiLlmService implements LlmService {
         // Cleanup: đảm bảo chỉ nhận đúng 1 trong 5 giá trị hợp lệ
         String cleaned = result.trim().toLowerCase()
                 .replaceAll("[\"'`]", "") // Remove quotes
-                .replaceAll("\\s+", "");  // Remove whitespace
+                .replaceAll("\\s+", ""); // Remove whitespace
 
         if (List.of("product", "policy", "order", "greeting", "other").contains(cleaned)) {
-            log.info("Intent classified: '{}' → '{}'", userMessage.substring(0, Math.min(50, userMessage.length())), cleaned);
+            log.info("Intent classified: '{}' → '{}'", userMessage.substring(0, Math.min(50, userMessage.length())),
+                    cleaned);
             return cleaned;
         }
 
@@ -95,9 +96,10 @@ public class GeminiLlmService implements LlmService {
 
     @Override
     public String generateResponse(String systemPrompt, String userMessage, List<ChatTurn> history) {
-        // Build proper Gemini multi-turn contents — đây là cách đúng thay vì nhồi history vào 1 text blob
-        java.util.List<java.util.Map<String, Object>> contents =
-                buildMultiTurnContents(history, systemPrompt, userMessage);
+        // Build proper Gemini multi-turn contents — đây là cách đúng thay vì nhồi
+        // history vào 1 text blob
+        java.util.List<java.util.Map<String, Object>> contents = buildMultiTurnContents(history, systemPrompt,
+                userMessage);
         return callGeminiMultiTurn(contents, 1024);
     }
 
@@ -107,32 +109,49 @@ public class GeminiLlmService implements LlmService {
 
         String prompt = String.format("""
                 %s
-                
+
                 === NGỮ CẢNH (Sản phẩm đã đề cập trước đó) ===
                 %s
-                
+
                 === NHIỆM VỤ ===
-                Phân tích câu hỏi tìm kiếm sản phẩm sau và trả về JSON với các trường CỰC KỲ CHÍNH XÁC:
-                - "keyword": Từ khóa chung chung (ví dụ: "áo thun", "iphone"), null nếu không có
-                - "categorySlug": Phải map vào 1 trong 4 danh mục ("electronics", "fashion", "home-living", "beauty"), nếu không rõ thì để null
-                - "brand": Tên thương hiệu (ví dụ: "apple", "samsung", "asus", v.v.), null nếu không có
-                - "maxPrice": Giá tối đa bằng số (VND, không có đơn vị), null nếu không có
-                - "minPrice": Giá tối thiểu bằng số (VND), null nếu không có
-                - "minRating": Số sao thấp nhất (ví dụ yêu cầu "tốt", "chất lượng" thì cho 4.0; 5 sao thì 5.0), null nếu không có
-                - "isFollowUp": true nếu câu này hỏi tiếp về sản phẩm ở ngữ cảnh trên, false nếu tìm mới
-                
-                Lưu ý: 
-                - "15 triệu" = 15000000; "7tr" = 7000000; "500k" = 500000.
-                - Nếu khách hỏi "điện thoại" -> categorySlug = "electronics". "váy", "áo" -> "fashion".
-                
+                Phân tích câu hỏi tìm kiếm sản phẩm và trả về JSON thuần với các trường:
+                - "keyword": từ khóa có khả năng xuất hiện trong tên sản phẩm / mô tả / sku.
+                  Nếu người dùng chỉ nói từ quá chung như "điện thoại", "mỹ phẩm", "quần áo", "nội thất"
+                  thì để null và dùng categorySlug.
+                - "categorySlug": chỉ một trong 4 giá trị "electronics", "fashion", "home-living", "beauty"
+                - "brand": thương hiệu nếu có, ví dụ "apple", "samsung"
+                - "minPrice": giá tối thiểu dạng số, null nếu không có
+                - "maxPrice": giá tối đa dạng số, null nếu không có
+                - "minRating": nếu user nói "đánh giá cao", "tốt", "5 sao" thì map về số phù hợp
+                - "sortBy": một trong các giá trị:
+                    "topRated"    nếu user ưu tiên tốt nhất / đánh giá cao
+                    "bestSelling" nếu user hỏi bán chạy / phổ biến
+                    "priceAsc"    nếu user ưu tiên rẻ nhất
+                    "priceDesc"   nếu user ưu tiên cao cấp / đắt hơn
+                    "newest"      nếu user hỏi mẫu mới
+                    null          nếu không có
+                - "isFollowUp": true nếu đây là câu hỏi nối tiếp ngữ cảnh trước đó
+
+                === QUY TẮC QUAN TRỌNG ===
+                - "15 triệu" = 15000000, "7tr" = 7000000, "500k" = 500000.
+                - "điện thoại", "iphone", "samsung", "galaxy", "đồng hồ" -> categorySlug = "electronics"
+                - "áo", "váy", "giày", "sneaker", "hoodie", "sơ mi" -> categorySlug = "fashion"
+                - "ghế", "bàn", "nội thất" -> categorySlug = "home-living"
+                - "kem", "mặt nạ", "dưỡng ẩm", "mỹ phẩm" -> categorySlug = "beauty"
+                - Nếu user nói "điện thoại Samsung khoảng 17 triệu" thì:
+                  keyword = null, categorySlug = "electronics", brand = "samsung", maxPrice ≈ 17000000
+                - Nếu user nói "ghế công thái học" thì:
+                  keyword = "ghế", categorySlug = "home-living"
+                - Nếu là follow-up như "con nào rẻ hơn", "có mẫu nào rẻ hơn không",
+                  có thể để keyword/category/brand null và set isFollowUp = true.
+
                 Câu hỏi: "%s"
-                
-                Trả về CHỈ JSON thuần túy, không markdown, không giải thích:
+
+                Chỉ trả về JSON thuần túy, không markdown, không giải thích.
                 """,
                 SYSTEM_CONTEXT, contextSummary, userMessage);
 
         String jsonResult = callGeminiAPI(prompt, 512, true);
-            // Strip markdown code blocks nếu Gemini trả về
         return jsonResult.replaceAll("```json\\s*", "").replaceAll("```\\s*", "").trim();
     }
 
@@ -143,14 +162,20 @@ public class GeminiLlmService implements LlmService {
 
         String requestBody;
         try {
-            requestBody = objectMapper.writeValueAsString(new java.util.HashMap<>() {{
-                put("model", "models/gemini-embedding-001");
-                put("content", new java.util.HashMap<>() {{
-                    put("parts", List.of(new java.util.HashMap<>() {{
-                        put("text", text);
-                    }}));
-                }});
-            }});
+            requestBody = objectMapper.writeValueAsString(new java.util.HashMap<>() {
+                {
+                    put("model", "models/gemini-embedding-001");
+                    put("content", new java.util.HashMap<>() {
+                        {
+                            put("parts", List.of(new java.util.HashMap<>() {
+                                {
+                                    put("text", text);
+                                }
+                            }));
+                        }
+                    });
+                }
+            });
         } catch (Exception e) {
             log.error("Failed to serialize embedding request body", e);
             return new float[768];
@@ -197,8 +222,9 @@ public class GeminiLlmService implements LlmService {
     /**
      * Gọi Gemini API với prompt thuần text.
      *
-     * @param prompt           Prompt đầy đủ
-     * @param allowLongResponse  true = cho phép response dài (generate), false = cần ngắn (classify)
+     * @param prompt            Prompt đầy đủ
+     * @param allowLongResponse true = cho phép response dài (generate), false = cần
+     *                          ngắn (classify)
      */
     private String callGeminiAPI(String prompt, int maxTokens, boolean expectJson) {
         String url = String.format("%s/%s:generateContent?key=%s", apiBaseUrl, chatModel, apiKey);
@@ -206,32 +232,43 @@ public class GeminiLlmService implements LlmService {
         // Build request JSON body theo Gemini API format
         String requestBody;
         try {
-            requestBody = objectMapper.writeValueAsString(new java.util.HashMap<>() {{
-                put("contents", List.of(new java.util.HashMap<>() {{
-                    put("role", "user");
-                    put("parts", List.of(new java.util.HashMap<>() {{
-                        put("text", prompt);
-                    }}));
-                }}));
-                put("generationConfig", new java.util.HashMap<>() {{
-                    put("temperature", maxTokens > 100 ? 0.7 : 0.1);
-                    put("maxOutputTokens", maxTokens);
-                    put("topP", 0.8);
-                    if (expectJson) {
-                        put("responseMimeType", "application/json");
-                    }
-                }});
-                put("safetySettings", List.of(
-                    new java.util.HashMap<>() {{
-                        put("category", "HARM_CATEGORY_HARASSMENT");
-                        put("threshold", "BLOCK_ONLY_HIGH");
-                    }},
-                    new java.util.HashMap<>() {{
-                        put("category", "HARM_CATEGORY_HATE_SPEECH");
-                        put("threshold", "BLOCK_ONLY_HIGH");
-                    }}
-                ));
-            }});
+            requestBody = objectMapper.writeValueAsString(new java.util.HashMap<>() {
+                {
+                    put("contents", List.of(new java.util.HashMap<>() {
+                        {
+                            put("role", "user");
+                            put("parts", List.of(new java.util.HashMap<>() {
+                                {
+                                    put("text", prompt);
+                                }
+                            }));
+                        }
+                    }));
+                    put("generationConfig", new java.util.HashMap<>() {
+                        {
+                            put("temperature", maxTokens > 100 ? 0.7 : 0.1);
+                            put("maxOutputTokens", maxTokens);
+                            put("topP", 0.8);
+                            if (expectJson) {
+                                put("responseMimeType", "application/json");
+                            }
+                        }
+                    });
+                    put("safetySettings", List.of(
+                            new java.util.HashMap<>() {
+                                {
+                                    put("category", "HARM_CATEGORY_HARASSMENT");
+                                    put("threshold", "BLOCK_ONLY_HIGH");
+                                }
+                            },
+                            new java.util.HashMap<>() {
+                                {
+                                    put("category", "HARM_CATEGORY_HATE_SPEECH");
+                                    put("threshold", "BLOCK_ONLY_HIGH");
+                                }
+                            }));
+                }
+            });
         } catch (Exception e) {
             log.error("Failed to serialize Gemini request body", e);
             return getFallbackResponse();
@@ -270,18 +307,19 @@ public class GeminiLlmService implements LlmService {
         try {
             JsonNode root = objectMapper.readTree(jsonResponse);
             JsonNode candidates = root.path("candidates");
-            
+
             if (candidates.isMissingNode() || !candidates.isArray() || candidates.size() == 0) {
-                 log.error("Gemini returned no candidates. Full response: {}", jsonResponse);
-                 return getFallbackResponse();
+                log.error("Gemini returned no candidates. Full response: {}", jsonResponse);
+                return getFallbackResponse();
             }
-            
+
             JsonNode firstCandidate = candidates.get(0);
             JsonNode content = firstCandidate.path("content");
-            
+
             // Check for blocked content first
             JsonNode blockReason = firstCandidate.path("finishReason");
-            if (blockReason != null && ("SAFETY".equals(blockReason.asText()) || "OTHER".equals(blockReason.asText()))) {
+            if (blockReason != null
+                    && ("SAFETY".equals(blockReason.asText()) || "OTHER".equals(blockReason.asText()))) {
                 log.warn("Gemini response blocked by safety filters or other finish reason. {}", blockReason.asText());
                 return "Xin lỗi, tôi không thể trả lời câu hỏi này do nó vi phạm tiêu chuẩn cộng đồng. 🙏";
             }
@@ -291,7 +329,8 @@ public class GeminiLlmService implements LlmService {
                 return text.asText().trim();
             }
 
-            log.error("Unexpected Gemini response format: {}", jsonResponse.substring(0, Math.min(200, jsonResponse.length())));
+            log.error("Unexpected Gemini response format: {}",
+                    jsonResponse.substring(0, Math.min(200, jsonResponse.length())));
             return getFallbackResponse();
 
         } catch (Exception e) {
@@ -312,7 +351,7 @@ public class GeminiLlmService implements LlmService {
         for (int i = start; i < history.size(); i++) {
             ChatTurn turn = history.get(i);
             sb.append(turn.getRole().equals("user") ? "User" : "Bot")
-              .append(": ").append(turn.getContent()).append("\n");
+                    .append(": ").append(turn.getContent()).append("\n");
         }
         return sb.toString().trim();
     }
@@ -329,14 +368,15 @@ public class GeminiLlmService implements LlmService {
         for (int i = start; i < history.size(); i++) {
             ChatTurn turn = history.get(i);
             sb.append(turn.getRole().equals("user") ? "User" : "Trợ lý")
-              .append(": ").append(turn.getContent()).append("\n");
+                    .append(": ").append(turn.getContent()).append("\n");
         }
         return sb.toString().trim();
     }
 
     /**
      * Build Gemini multi-turn contents array từ conversation history.
-     * Gemini API yêu cầu contents là list các {role, parts} xen kẽ nhau (user/model).
+     * Gemini API yêu cầu contents là list các {role, parts} xen kẽ nhau
+     * (user/model).
      * Không được có 2 turn cùng role liên tiếp, và phải bắt đầu bằng user.
      */
     private java.util.List<java.util.Map<String, Object>> buildMultiTurnContents(
@@ -345,21 +385,34 @@ public class GeminiLlmService implements LlmService {
         java.util.List<java.util.Map<String, Object>> contents = new java.util.ArrayList<>();
 
         if (history != null && !history.isEmpty()) {
-            int start = Math.max(0, history.size() - 6); // tối đa 6 turn gần nhất
-            // Gemini yêu cầu bắt đầu bằng role "user" — bỏ qua turn đầu nếu là model
-            while (start < history.size() && "model".equals(history.get(start).getRole())) {
+            int start = Math.max(0, history.size() - 6);
+            while (start < history.size() && !history.get(start).getRole().equals("user")) {
                 start++;
             }
+            
+            String lastRole = null;
             for (int i = start; i < history.size(); i++) {
                 ChatTurn turn = history.get(i);
+                String role = turn.getRole().equals("bot") ? "model" : turn.getRole();
+                
+                if (role.equals(lastRole)) {
+                    continue; 
+                }
+                lastRole = role;
+
                 java.util.Map<String, Object> turnMap = new java.util.LinkedHashMap<>();
-                turnMap.put("role", turn.getRole()); // "user" hoặc "model"
+                turnMap.put("role", role); 
                 turnMap.put("parts", java.util.List.of(java.util.Map.of("text", turn.getContent())));
                 contents.add(turnMap);
             }
         }
 
-        // Turn hiện tại: kết hợp task-specific systemPrompt + user message thành 1 user turn
+        // Bắt buộc history phải kết thúc bằng "model" trước khi thêm "user" mới. 
+        // Nếu kết thúc bằng "user", xoá nó đi để tránh lỗi 2 turn "user" liên tiếp (Error 400).
+        if (!contents.isEmpty() && "user".equals(contents.get(contents.size() - 1).get("role"))) {
+            contents.remove(contents.size() - 1);
+        }
+
         String currentText = (taskPrompt == null || taskPrompt.isBlank())
                 ? userMessage
                 : taskPrompt + "\n\n=== CÂU Hỏi CỦA KHÁCH HÀNG ===\n" + userMessage;
@@ -388,15 +441,16 @@ public class GeminiLlmService implements LlmService {
             bodyMap.put("systemInstruction", java.util.Map.of(
                     "parts", java.util.List.of(java.util.Map.of("text", SYSTEM_CONTEXT))));
             bodyMap.put("contents", contents);
-            bodyMap.put("generationConfig", new java.util.HashMap<>() {{
-                put("temperature", 0.7);
-                put("maxOutputTokens", maxTokens);
-                put("topP", 0.8);
-            }});
+            bodyMap.put("generationConfig", new java.util.HashMap<>() {
+                {
+                    put("temperature", 0.7);
+                    put("maxOutputTokens", maxTokens);
+                    put("topP", 0.8);
+                }
+            });
             bodyMap.put("safetySettings", java.util.List.of(
                     java.util.Map.of("category", "HARM_CATEGORY_HARASSMENT", "threshold", "BLOCK_ONLY_HIGH"),
-                    java.util.Map.of("category", "HARM_CATEGORY_HATE_SPEECH", "threshold", "BLOCK_ONLY_HIGH")
-            ));
+                    java.util.Map.of("category", "HARM_CATEGORY_HATE_SPEECH", "threshold", "BLOCK_ONLY_HIGH")));
             requestBody = objectMapper.writeValueAsString(bodyMap);
         } catch (Exception e) {
             log.error("Failed to serialize Gemini multi-turn request body", e);

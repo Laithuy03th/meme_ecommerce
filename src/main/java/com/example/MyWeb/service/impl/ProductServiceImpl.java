@@ -72,14 +72,14 @@ public class ProductServiceImpl implements ProductService {
 
                 // Sort field phải khớp với tên field trong Java entity (không phải DB column)
                 Sort sort = switch (sortBy) {
-                        case "oldest"                 -> Sort.by("createdAt").ascending();
-                        case "priceAsc"               -> Sort.by("basePrice").ascending();
-                        case "priceDesc"              -> Sort.by("basePrice").descending();
+                        case "oldest" -> Sort.by("createdAt").ascending();
+                        case "priceAsc" -> Sort.by("basePrice").ascending();
+                        case "priceDesc" -> Sort.by("basePrice").descending();
                         case "bestSelling", "popular" -> Sort.by(Sort.Order.desc("soldCount"),
-                                                                   Sort.Order.desc("createdAt"));
-                        case "topRated"               -> Sort.by(Sort.Order.desc("averageRating"),
-                                                                   Sort.Order.desc("reviewCount"));
-                        default                       -> Sort.by("createdAt").descending(); // newest
+                                        Sort.Order.desc("createdAt"));
+                        case "topRated" -> Sort.by(Sort.Order.desc("averageRating"),
+                                        Sort.Order.desc("reviewCount"));
+                        default -> Sort.by("createdAt").descending(); // newest
                 };
 
                 Pageable pageable = PageRequest.of(page, size, sort);
@@ -88,8 +88,7 @@ public class ProductServiceImpl implements ProductService {
                 // Hỗ trợ search 2 tầng: product + variant (color, size, sku)
                 Page<Product> productPage = productRepository.findAll(
                                 ProductSpecifications.search(kw, catSlug, minPrice, maxPrice, brand, minRating),
-                                pageable
-                );
+                                pageable);
 
                 return productPage.map(this::toListItem);
         }
@@ -254,8 +253,7 @@ public class ProductServiceImpl implements ProductService {
 
                 Page<Product> products = productRepository.findAll(
                                 ProductSpecifications.search(kw, catSlug, null, null, null, null),
-                                pageable
-                );
+                                pageable);
 
                 return products.getContent().stream()
                                 .map(p -> ProductSuggestionResponse.builder()
@@ -286,16 +284,8 @@ public class ProductServiceImpl implements ProductService {
                                 new SearchKeywordSuggestion("Mặt nạ", "Beauty", "beauty"),
 
                                 // Electronics (Điện thoại, Đồng hồ)
-                                new SearchKeywordSuggestion("Điện thoại", "Electronics", "electronics"), // Dataseed
-                                                                                                         // chưa có
-                                                                                                         // 'Điện thoại'
-                                                                                                         // mà là
-                                                                                                         // iPhone/Samsung/Galaxy
-                                                                                                         // -> Sẽ sửa
-                                                                                                         // lại logic
-                                                                                                         // tìm kiếm
-                                                                                                         // hoặc thêm
-                                                                                                         // keyword
+                                new SearchKeywordSuggestion("iPhone", "Electronics", "electronics"),
+                                new SearchKeywordSuggestion("Samsung", "Electronics", "electronics"),
                                 new SearchKeywordSuggestion("Đồng hồ", "Electronics", "electronics"));
         }
 }

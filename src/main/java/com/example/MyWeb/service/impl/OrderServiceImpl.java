@@ -338,7 +338,7 @@ public class OrderServiceImpl implements OrderService {
                 log.info("Order created successfully: orderId={}, userId={}, totalAmount={}",
                                 savedOrder.getId(), userId, totalAmount);
 
-                orderStatusHistoryRepository.save(OrderStatusHistory.systemChange(savedOrder, null, OrderStatus.PENDING, "Order placed"));
+                orderStatusHistoryRepository.save(OrderStatusHistory.systemChange(savedOrder, OrderStatus.PENDING, OrderStatus.PENDING, "Order placed"));
                 emailService.sendOrderConfirmation(user.getEmail(), savedOrder.getId(), totalAmount);
 
                 // FIXED: Partial Checkout - Only remove purchased items

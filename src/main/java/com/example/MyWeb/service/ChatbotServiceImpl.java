@@ -25,7 +25,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.example.MyWeb.dto.ProductSearchConstraints;
+import org.springframework.data.domain.Sort;
 import java.text.NumberFormat;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -35,12 +36,12 @@ import java.util.stream.Collectors;
  *
  * Pipeline:
  * 1. Load conversation context (in-memory)
- * 2. LLM classify intent (Gemini gemini-1.5-flash)
+ * 2. LLM classify intent (Gemini gemini-flash-latest)
  * 3. Route theo intent:
- *    - product → extract constraints → query DB → LLM diễn đạt
- *    - policy  → hardcoded + LLM (RAG sẽ thêm ở Tuần 2-3)
- *    - order   → query DB → format response
- *    - greeting → welcome message
+ * - product → extract constraints → query DB → LLM diễn đạt
+ * - policy → hardcoded + LLM (RAG sẽ thêm ở Tuần 2-3)
+ * - order → query DB → format response
+ * - greeting → welcome message
  * 4. Update context + save to DB
  */
 @Service
@@ -62,9 +63,12 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     @Override
-    // KHÔNG dùng @Transactional ở đây: phương thức này gọi API ngoài (Gemini, 15-30s)
-    // lẫn với DB ops. Nếu giữ @Transactional, mọi RuntimeException từ Gemini sẽ mark
-    // transaction là rollback-only → gây lỗi "Transaction silently rolled back" ở câu thứ 2 trở đi.
+    // KHÔNG dùng @Transactional ở đây: phương thức này gọi API ngoài (Gemini,
+    // 15-30s)
+    // lẫn với DB ops. Nếu giữ @Transactional, mọi RuntimeException từ Gemini sẽ
+    // mark
+    // transaction là rollback-only → gây lỗi "Transaction silently rolled back" ở
+    // câu thứ 2 trở đi.
     // Các repository method đã có @Transactional riêng của chúng.
     public ChatResponse processMessage(ChatRequest request) {
         String sessionId = request.getSessionId();
@@ -153,17 +157,17 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     private ChatResponse routeAndRespond(String intent, String userMessage,
-                                          List<ChatTurn> history, ChatRequest request) {
+            List<ChatTurn> history, ChatRequest request) {
         ChatResponse.ChatResponseBuilder builder = ChatResponse.builder()
                 .intent(intent)
                 .sessionId(request.getSessionId());
 
         return switch (intent) {
             case "greeting" -> handleGreeting(builder, userMessage, history);
-            case "product"  -> handleProductSearch(builder, userMessage, history, request.getSessionId());
-            case "policy"   -> handlePolicyQuestion(builder, userMessage, history);
-            case "order"    -> handleOrderTracking(builder, userMessage, history, request.getUserId());
-            default         -> handleOther(builder, userMessage, history);
+            case "product" -> handleProductSearch(builder, userMessage, history, request.getSessionId());
+            case "policy" -> handlePolicyQuestion(builder, userMessage, history);
+            case "order" -> handleOrderTracking(builder, userMessage, history, request.getUserId());
+            default -> handleOther(builder, userMessage, history);
         };
     }
 
@@ -172,7 +176,7 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     private ChatResponse handleGreeting(ChatResponse.ChatResponseBuilder builder,
-                                         String userMessage, List<ChatTurn> history) {
+            String userMessage, List<ChatTurn> history) {
         String systemPrompt = """
                 === VAI TRÒ ===
                 Bạn đang là trợ lý AI của MemeShop - cửa hàng thương mại điện tử.
@@ -180,7 +184,7 @@ public class ChatbotServiceImpl implements ChatbotService {
                 - Tìm kiếm và tư vấn sản phẩm bằng ngôn ngữ tự nhiên
                 - Tra cứu đơn hàng theo mã hoặc tài khoản
                 - Giải đáp chính sách giao hàng, đổi trả, bảo hành
-                
+
                 Giữ câu trả lời ngắn gọn (tối đa 3-4 câu), dùng 1-2 emoji.
                 """;
 
@@ -190,9 +194,12 @@ public class ChatbotServiceImpl implements ChatbotService {
                 .response(response)
                 .quickReplies(Arrays.asList(
                         QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").icon("🔍").build(),
-                        QuickReply.builder().label("📦 Đơn hàng của tôi").value("xem đơn hàng của tôi").icon("📦").build(),
-                        QuickReply.builder().label("🚚 Chính sách giao hàng").value("chính sách giao hàng như thế nào").icon("🚚").build(),
-                        QuickReply.builder().label("🔄 Đổi trả hàng").value("chính sách đổi trả hàng").icon("🔄").build()))
+                        QuickReply.builder().label("📦 Đơn hàng của tôi").value("xem đơn hàng của tôi").icon("📦")
+                                .build(),
+                        QuickReply.builder().label("🚚 Chính sách giao hàng").value("chính sách giao hàng như thế nào")
+                                .icon("🚚").build(),
+                        QuickReply.builder().label("🔄 Đổi trả hàng").value("chính sách đổi trả hàng").icon("🔄")
+                                .build()))
                 .build();
     }
 
@@ -201,79 +208,32 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     private ChatResponse handleProductSearch(ChatResponse.ChatResponseBuilder builder,
-                                              String userMessage, List<ChatTurn> history,
-                                              String sessionId) {
-        // 1. Kiểm tra follow-up: "con nào pin hơn?" — dựa vào context
-        boolean isFollowUp = isProductFollowUp(userMessage, history, sessionId);
+            String userMessage,
+            List<ChatTurn> history,
+            String sessionId) {
 
-        // 2. LLM extract search constraints
-        String constraintsJson;
-        try {
-            constraintsJson = llmService.extractProductConstraints(userMessage, history);
-            log.info("[ProductSearch] Constraints JSON: {}", constraintsJson);
-        } catch (Exception e) {
-            log.error("Failed to extract product constraints", e);
-            constraintsJson = "{}";
+        boolean heuristicFollowUp = isProductFollowUp(userMessage, history, sessionId);
+
+        ProductSearchConstraints constraints = extractConstraintsWithFallback(userMessage, history);
+
+        if (Boolean.TRUE.equals(constraints.getIsFollowUp()) || heuristicFollowUp) {
+            constraints = mergeMissingConstraintsFromHistory(constraints, userMessage, history);
         }
 
-        // 3. Parse constraints
-        String keyword = null;
-        String categorySlug = null;
-        String brand = null;
-        Double maxPrice = null;
-        Double minPrice = null;
-        Double minRating = null;
-        boolean llmSaysFollowUp = false; // khai báo ở đây để dùng được sau try block
+        normalizeConstraintsForCatalog(constraints, userMessage);
 
-        try {
-            JsonNode constraints = objectMapper.readTree(constraintsJson);
-            if (!constraints.path("keyword").isNull()) {
-                keyword = constraints.path("keyword").asText(null);
-            }
-            if (!constraints.path("categorySlug").isNull()) {
-                categorySlug = constraints.path("categorySlug").asText(null);
-            }
-            if (!constraints.path("brand").isNull()) {
-                brand = constraints.path("brand").asText(null);
-            }
-            if (!constraints.path("maxPrice").isNull() && constraints.path("maxPrice").isNumber()) {
-                maxPrice = constraints.path("maxPrice").asDouble();
-            }
-            if (!constraints.path("minPrice").isNull() && constraints.path("minPrice").isNumber()) {
-                minPrice = constraints.path("minPrice").asDouble();
-            }
-            if (!constraints.path("minRating").isNull() && constraints.path("minRating").isNumber()) {
-                minRating = constraints.path("minRating").asDouble();
-            }
-            
-            // Xử lý isFollowUp: nếu là follow-up mà không có keyword mới → reuse keyword từ history
-            llmSaysFollowUp = constraints.path("isFollowUp").asBoolean(false); // assign (không declare lại)
-            if ((llmSaysFollowUp || isFollowUp) && keyword == null) {
-                // Quét lịch sử tìm câu hỏi sản phẩm gần nhất của user (không phải câu hiện tại)
-                for (int i = history.size() - 1; i >= 0; i--) {
-                    ChatTurn turn = history.get(i);
-                    if ("user".equals(turn.getRole())
-                            && !turn.getContent().equalsIgnoreCase(userMessage)) {
-                        keyword = turn.getContent();
-                        log.info("[FollowUp] Reusing previous context keyword from history: '{}'", keyword);
-                        break;
-                    }
-                }
-            }
-            
-        } catch (Exception e) {
-            log.warn("Failed to parse constraints JSON, using keyword fallback: {}", constraintsJson);
-            keyword = userMessage;
-        }
-
-        // 4. Query Database using ProductSpecifications
-        List<Product> products = searchProductsAdvanced(keyword, categorySlug, minPrice, maxPrice, brand, minRating, 5);
+        List<Product> products = searchProductsAdvanced(constraints, 5);
 
         if (products.isEmpty()) {
-            // Không tìm thấy — hỏi lại
             String clarifyResponse = llmService.generateResponse(
-                    "Không tìm thấy sản phẩm phù hợp trong DB. Hãy xin lỗi ngắn gọn và hỏi lại yêu cầu cụ thể hơn.",
-                    userMessage, history);
+                    """
+                            Không tìm thấy sản phẩm phù hợp trong DB.
+                            Hãy xin lỗi ngắn gọn, nêu rằng hiện chưa thấy sản phẩm khớp hoàn toàn,
+                            rồi hỏi user 1 câu ngắn để làm rõ hơn về ngân sách, thương hiệu hoặc loại sản phẩm.
+                            """,
+                    userMessage,
+                    history);
+
             return builder.response(clarifyResponse)
                     .quickReplies(List.of(
                             QuickReply.builder().label("Xem tất cả sản phẩm").value("xem tất cả sản phẩm").build(),
@@ -281,7 +241,6 @@ public class ChatbotServiceImpl implements ChatbotService {
                     .build();
         }
 
-        // 5. Build product data cho FE render cards
         List<Map<String, Object>> productData = products.stream().map(p -> {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("id", p.getId());
@@ -294,7 +253,6 @@ public class ChatbotServiceImpl implements ChatbotService {
             return data;
         }).collect(Collectors.toList());
 
-        // 6. LLM tổng hợp câu trả lời tự nhiên
         String productListText = products.stream()
                 .map(p -> String.format("- %s (%s): %.0f VNĐ, đánh giá: %.1f★",
                         p.getName(),
@@ -303,40 +261,67 @@ public class ChatbotServiceImpl implements ChatbotService {
                         p.getAverageRating() != null ? p.getAverageRating() : 0.0))
                 .collect(Collectors.joining("\n"));
 
-        // Phát hiện query quá lứ và chưa có ràng buộc cụ thể → hỏi ngược để làm rõ nội dung (thính năng cốt lõi trong báo cáo)
-        boolean hasSpecificConstraints = (maxPrice != null || minPrice != null
-                || brand != null || minRating != null || categorySlug != null);
-        boolean shouldClarify = !isFollowUp && !llmSaysFollowUp
-                && !hasSpecificConstraints && products.size() >= 4;
+        boolean shouldClarify = shouldAskClarification(constraints, heuristicFollowUp, products);
 
         String clarifyInstruction = shouldClarify
-                ? "\nQUAN TRỌ NG: Sau khi nêu 2-3 sản phẩm tiêu biểu, kết thúc bằng ĐÚNG 1 câu hỏi ngắn để làm rõ nhu cầu (ví dụ: ngân sách, thương hiệu, hoặc tính năng quan trọng nhất). Đặt câu hỏi trực tiếp cuối câu trả lời."
+                ? "\nSau khi nêu 2-3 sản phẩm tiêu biểu, kết thúc bằng đúng 1 câu hỏi ngắn để làm rõ thêm nhu cầu."
                 : "\nKết thúc bằng gợi ý xem chi tiết hoặc hỏi thêm về nhu cầu.";
 
         String systemPrompt = String.format("""
                 === NHIỆM VỤ ===
                 Tư vấn sản phẩm cho khách hàng dựa trên danh sách tìm được từ database.%s
-                
+
                 === DANH SÁCH SẢN PHẨM TÌM ĐƯỢC ===
                 %s
-                
+
                 === YÊU CẦU CỦA KHÁCH ===
-                (Hãy nhắc lại yêu cầu và tư vấn cụ thể theo nhu cầu đó)
+                Hãy nhắc lại ngắn gọn yêu cầu và tư vấn cụ thể theo nhu cầu đó.
+                Nếu user ưu tiên giá rẻ thì nhấn mạnh phương án tiết kiệm hơn.
+                Nếu user ưu tiên tốt nhất / đánh giá cao thì nhấn mạnh sản phẩm nổi bật hơn.
                 """, clarifyInstruction, productListText);
 
         String response = llmService.generateResponse(systemPrompt, userMessage, history);
 
-        // 7. Build quick replies động
         List<QuickReply> quickReplies = new ArrayList<>();
         if (products.size() == 5) {
-            quickReplies.add(QuickReply.builder().label("Xem thêm kết quả").value("cho xem thêm sản phẩm tương tự").build());
+            quickReplies.add(QuickReply.builder()
+                    .label("Xem thêm kết quả")
+                    .value("cho xem thêm sản phẩm tương tự")
+                    .build());
         }
         quickReplies.add(QuickReply.builder().label("So sánh").value("so sánh các sản phẩm này").build());
         quickReplies.add(QuickReply.builder().label("Tìm loại khác").value("tôi muốn tìm loại sản phẩm khác").build());
 
+        Map<String, Object> searchMeta = new LinkedHashMap<>();
+        if (hasText(constraints.getKeyword())) {
+            searchMeta.put("keyword", constraints.getKeyword());
+        }
+        if (hasText(constraints.getCategorySlug())) {
+            searchMeta.put("category", constraints.getCategorySlug());
+        }
+        if (hasText(constraints.getBrand())) {
+            searchMeta.put("brand", constraints.getBrand());
+        }
+        if (constraints.getMinPrice() != null) {
+            searchMeta.put("minPrice", constraints.getMinPrice());
+        }
+        if (constraints.getMaxPrice() != null) {
+            searchMeta.put("maxPrice", constraints.getMaxPrice());
+        }
+        if (constraints.getMinRating() != null) {
+            searchMeta.put("minRating", constraints.getMinRating());
+        }
+        if (hasText(constraints.getSortBy())) {
+            searchMeta.put("sortBy", constraints.getSortBy());
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("products", productData);
+        payload.put("searchMeta", searchMeta);
+
         return builder
                 .response(response)
-                .data(Map.of("products", productData))
+                .data(payload)
                 .quickReplies(quickReplies)
                 .build();
     }
@@ -346,14 +331,14 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     private ChatResponse handlePolicyQuestion(ChatResponse.ChatResponseBuilder builder,
-                                               String userMessage, List<ChatTurn> history) {
-        
+            String userMessage, List<ChatTurn> history) {
+
         // 1. RAG Retrieve: Tìm kiếm tài liệu FAQ phù hợp nhất từ pgvector
         List<FaqDocument> relevantDocs = ragService.retrieveRelevantContext(userMessage, 3);
-        
+
         // 2. Build Context String
         String policyContext = "(Rất tiếc, hiện tại không tìm thấy tài liệu chính sách phù hợp. Hãy trả lời dựa trên kiến thức chung hợp lý nhất của một cửa hàng điện tử, và khuyên khách hàng liên hệ hotline.)";
-        
+
         if (!relevantDocs.isEmpty()) {
             policyContext = ragService.buildContextString(relevantDocs);
         }
@@ -361,7 +346,7 @@ public class ChatbotServiceImpl implements ChatbotService {
         String systemPrompt = String.format("""
                 === NGỮ CẢNH CHÍNH SÁCH (Tài liệu từ hệ thống RAG) ===
                 %s
-                
+
                 === HƯỚNG DẪN ===
                 1. Hãy đóng vai trợ lý AI của MemeShop.
                 2. CHỈ sử dụng thông tin từ 'NGỮ CẢNH CHÍNH SÁCH' ở trên để trả lời câu hỏi.
@@ -386,7 +371,7 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     private ChatResponse handleOrderTracking(ChatResponse.ChatResponseBuilder builder,
-                                              String userMessage, List<ChatTurn> history, Long userId) {
+            String userMessage, List<ChatTurn> history, Long userId) {
         // Extract order ID từ message (giữ logic cũ, đã hoạt động tốt)
         String orderIdStr = extractOrderId(userMessage);
 
@@ -403,7 +388,7 @@ public class ChatbotServiceImpl implements ChatbotService {
         // CASE 3: Chưa login, không có mã đơn
         String response = llmService.generateResponse(
                 "User hỏi về đơn hàng nhưng chưa đăng nhập và chưa cung cấp mã đơn. " +
-                "Hãy hướng dẫn họ đăng nhập hoặc cung cấp mã đơn (VD: 'đơn 123'). Ngắn gọn.",
+                        "Hãy hướng dẫn họ đăng nhập hoặc cung cấp mã đơn (VD: 'đơn 123'). Ngắn gọn.",
                 userMessage, history);
 
         return builder
@@ -420,7 +405,8 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         if (page.isEmpty()) {
             return builder.response("Bạn chưa có đơn hàng nào tại MemeShop. 🛍️\nHãy khám phá sản phẩm và mua sắm nhé!")
-                    .quickReplies(List.of(QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build()))
+                    .quickReplies(List
+                            .of(QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build()))
                     .build();
         }
 
@@ -442,9 +428,9 @@ public class ChatbotServiceImpl implements ChatbotService {
             return m;
         }).collect(Collectors.toList());
 
-        List<QuickReply> replies = page.getContent().stream().limit(3).map(o ->
-                QuickReply.builder().label("Xem đơn #" + o.getId()).value("đơn " + o.getId()).icon("📦").build()
-        ).collect(Collectors.toList());
+        List<QuickReply> replies = page.getContent().stream().limit(3).map(
+                o -> QuickReply.builder().label("Xem đơn #" + o.getId()).value("đơn " + o.getId()).icon("📦").build())
+                .collect(Collectors.toList());
 
         return builder.response(msg.toString())
                 .data(Map.of("orders", ordersData))
@@ -453,15 +439,16 @@ public class ChatbotServiceImpl implements ChatbotService {
     }
 
     private ChatResponse handleSingleOrder(ChatResponse.ChatResponseBuilder builder,
-                                            String orderIdStr, Long userId,
-                                            String userMessage, List<ChatTurn> history) {
+            String orderIdStr, Long userId,
+            String userMessage, List<ChatTurn> history) {
         try {
             Long orderId = Long.parseLong(orderIdStr);
             Optional<Order> orderOpt = orderRepository.findById(orderId);
 
             if (orderOpt.isEmpty()) {
                 return builder.response(String.format(
-                        "Không tìm thấy đơn hàng #%d. 🔍 Vui lòng kiểm tra lại mã đơn hoặc liên hệ support.", orderId)).build();
+                        "Không tìm thấy đơn hàng #%d. 🔍 Vui lòng kiểm tra lại mã đơn hoặc liên hệ support.", orderId))
+                        .build();
             }
 
             Order order = orderOpt.get();
@@ -482,7 +469,8 @@ public class ChatbotServiceImpl implements ChatbotService {
                     "Đơn hàng #%d, trạng thái: %s, tổng tiền: %.0f VNĐ, đặt lúc: %s",
                     order.getId(), order.getStatus(), order.getTotalAmount(), order.getCreatedAt());
 
-            String systemPrompt = "Thông báo trạng thái đơn hàng ngắn gọn, thân thiện dựa trên thông tin sau: " + orderInfo;
+            String systemPrompt = "Thông báo trạng thái đơn hàng ngắn gọn, thân thiện dựa trên thông tin sau: "
+                    + orderInfo;
             String response = llmService.generateResponse(systemPrompt, userMessage, history);
 
             Map<String, Object> orderData = new LinkedHashMap<>();
@@ -508,7 +496,7 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     private ChatResponse handleOther(ChatResponse.ChatResponseBuilder builder,
-                                      String userMessage, List<ChatTurn> history) {
+            String userMessage, List<ChatTurn> history) {
         String systemPrompt = """
                 User hỏi một câu không rõ ràng hoặc ngoài phạm vi hỗ trợ.
                 Hãy:
@@ -536,28 +524,57 @@ public class ChatbotServiceImpl implements ChatbotService {
     /**
      * Tìm kiếm sản phẩm nâng cao bằng ProductSpecifications (Tuần 4)
      */
-    private List<Product> searchProductsAdvanced(String keyword, String categorySlug, Double minPrice, Double maxPrice, String brand, Double minRating, int limit) {
-        log.info("Advanced Search: kw='{}', cat='{}', brand='{}', minPrice={}, maxPrice={}, minRating={}",
-                  keyword, categorySlug, brand, minPrice, maxPrice, minRating);
-                  
-        Pageable pageable = PageRequest.of(0, limit);
-        Specification<Product> spec = ProductSpecifications.search(keyword, categorySlug, minPrice, maxPrice, brand, minRating);
-        
-        Page<Product> page = productRepository.findAll(spec, pageable);
-        List<Product> results = new ArrayList<>(page.getContent());
+    private List<Product> searchProductsAdvanced(ProductSearchConstraints c, int limit) {
+        Sort sort = buildSort(c.getSortBy());
 
-        // Nếu ko tìm được bằng filter nghiêm ngặt, thử nới lỏng từ khóa
-        if (results.isEmpty() && keyword != null && !keyword.isBlank()) {
-             log.info("No results found, relaxing search constraints...");
-             Specification<Product> relaxedSpec = ProductSpecifications.search(keyword, null, null, null, null, null);
-             results = new ArrayList<>(productRepository.findAll(relaxedSpec, pageable).getContent());
+        Pageable pageable = PageRequest.of(0, limit, sort);
+
+        Specification<Product> spec = ProductSpecifications.search(
+                c.getKeyword(),
+                c.getCategorySlug(),
+                c.getMinPrice(),
+                c.getMaxPrice(),
+                c.getBrand(),
+                c.getMinRating());
+
+        List<Product> results = new ArrayList<>(productRepository.findAll(spec, pageable).getContent());
+
+        // Relax 1: bỏ keyword nhưng giữ category/brand/price/rating
+        if (results.isEmpty() && hasText(c.getKeyword())) {
+            Specification<Product> relaxedKeyword = ProductSpecifications.search(
+                    null,
+                    c.getCategorySlug(),
+                    c.getMinPrice(),
+                    c.getMaxPrice(),
+                    c.getBrand(),
+                    c.getMinRating());
+            results = new ArrayList<>(productRepository.findAll(relaxedKeyword, pageable).getContent());
         }
 
-        // Sort by sold count in memory (for top K constraint) 
-        // Trong DB lớn nên sort ngay trong PageRequest, nhưng với limit=5 thì sort List vẫn ok.
-        results.sort((a, b) -> Integer.compare(
-                b.getSoldCount() != null ? b.getSoldCount() : 0,
-                a.getSoldCount() != null ? a.getSoldCount() : 0));
+        // Relax 2: nếu user yêu cầu "đánh giá cao" quá gắt thì thử bỏ minRating
+        if (results.isEmpty() && c.getMinRating() != null) {
+            Specification<Product> relaxedRating = ProductSpecifications.search(
+                    c.getKeyword(),
+                    c.getCategorySlug(),
+                    c.getMinPrice(),
+                    c.getMaxPrice(),
+                    c.getBrand(),
+                    null);
+            results = new ArrayList<>(productRepository.findAll(relaxedRating, pageable).getContent());
+        }
+
+        // Relax 3: bỏ luôn điều kiện giá và rating, chỉ giữ category/brand
+        if (results.isEmpty() && (c.getMinPrice() != null || c.getMaxPrice() != null)) {
+            Specification<Product> relaxedPrice = ProductSpecifications.search(
+                    c.getKeyword(),
+                    c.getCategorySlug(),
+                    null,
+                    null,
+                    c.getBrand(),
+                    null);
+            results = new ArrayList<>(productRepository.findAll(relaxedPrice, pageable).getContent());
+        }
+
 
         return results;
     }
@@ -567,19 +584,21 @@ public class ChatbotServiceImpl implements ChatbotService {
      * Dùng sessionId thực để lấy lastIntent từ ConversationContextService.
      */
     private boolean isProductFollowUp(String userMessage, List<ChatTurn> history, String sessionId) {
-        if (history == null || history.isEmpty()) return false;
+        if (history == null || history.isEmpty())
+            return false;
 
-        // Lấy intent gần nhất của bot từ in-memory context (đã fix: dùng sessionId thực)
+        // Lấy intent gần nhất của bot từ in-memory context (đã fix: dùng sessionId
+        // thực)
         String lastIntent = contextService.getLastIntent(sessionId);
 
         String msgLower = userMessage.toLowerCase();
         return msgLower.contains("con nào") || msgLower.contains("cái nào")
-               || msgLower.contains("loại nào") || msgLower.contains("model nào")
-               || msgLower.contains("hơn không") || msgLower.contains("tốt hơn")
-               || msgLower.contains("so sánh")
-               || msgLower.contains("cái đó") || msgLower.contains("sản phẩm đó")
-               || (msgLower.contains("nó") && "product".equals(lastIntent))
-               || (msgLower.length() < 20 && "product".equals(lastIntent)); // Câu rất ngắn trong ctx product
+                || msgLower.contains("loại nào") || msgLower.contains("model nào")
+                || msgLower.contains("hơn không") || msgLower.contains("tốt hơn")
+                || msgLower.contains("so sánh")
+                || msgLower.contains("cái đó") || msgLower.contains("sản phẩm đó")
+                || (msgLower.contains("nó") && "product".equals(lastIntent))
+                || (msgLower.length() < 20 && "product".equals(lastIntent)); // Câu rất ngắn trong ctx product
     }
 
     /**
@@ -593,19 +612,20 @@ public class ChatbotServiceImpl implements ChatbotService {
 
     private String getStatusEmoji(String status) {
         return switch (status) {
-            case "PENDING"          -> "⏳";
-            case "CONFIRMED"        -> "✅";
-            case "SHIPPED"          -> "🚚";
-            case "DELIVERED"        -> "✅";
-            case "CANCELED"         -> "❌";
+            case "PENDING" -> "⏳";
+            case "CONFIRMED" -> "✅";
+            case "SHIPPED" -> "🚚";
+            case "DELIVERED" -> "✅";
+            case "CANCELED" -> "❌";
             case "RETURN_REQUESTED" -> "🔄";
-            default                  -> "📦";
+            default -> "📦";
         };
     }
 
     /**
      * Lưu lịch sử chat vào DB.
-     * Dùng REQUIRES_NEW để transaction hoàn toàn độc lập, tránh bị nhiễm trạng thái rollback-only
+     * Dùng REQUIRES_NEW để transaction hoàn toàn độc lập, tránh bị nhiễm trạng thái
+     * rollback-only
      * từ bất kỳ exception nào trong processMessage.
      */
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
@@ -615,7 +635,7 @@ public class ChatbotServiceImpl implements ChatbotService {
             chatMessageRepository.save(ChatMessage.builder()
                     .sessionId(request.getSessionId())
                     .message(request.getMessage())
-                    .response("")                          // trường response của user turn = rỗng
+                    .response("") // trường response của user turn = rỗng
                     .messageType(ChatMessage.MessageType.USER)
                     .userId(request.getUserId())
                     .build());
@@ -634,5 +654,263 @@ public class ChatbotServiceImpl implements ChatbotService {
             // Không để lỗi DB lăn ra làm hỏng response trả về cho user
             log.error("[Chatbot] Failed to save chat message to DB: {}", e.getMessage());
         }
+    }
+
+    private ProductSearchConstraints extractConstraintsWithFallback(String userMessage, List<ChatTurn> history) {
+        ProductSearchConstraints c = ProductSearchConstraints.builder()
+                .isFollowUp(false)
+                .build();
+
+        try {
+            String constraintsJson = llmService.extractProductConstraints(userMessage, history);
+            JsonNode node = objectMapper.readTree(constraintsJson);
+
+            c.setKeyword(textOrNull(node, "keyword"));
+            c.setCategorySlug(textOrNull(node, "categorySlug"));
+            c.setBrand(textOrNull(node, "brand"));
+            c.setSortBy(textOrNull(node, "sortBy"));
+            c.setIsFollowUp(node.path("isFollowUp").asBoolean(false));
+
+            if (node.hasNonNull("minPrice") && node.get("minPrice").isNumber()) {
+                c.setMinPrice(node.get("minPrice").asDouble());
+            }
+            if (node.hasNonNull("maxPrice") && node.get("maxPrice").isNumber()) {
+                c.setMaxPrice(node.get("maxPrice").asDouble());
+            }
+            if (node.hasNonNull("minRating") && node.get("minRating").isNumber()) {
+                c.setMinRating(node.get("minRating").asDouble());
+            }
+        } catch (Exception e) {
+            log.warn("[ProductSearch] Cannot parse LLM constraints, fallback to rule-based extraction", e);
+        }
+
+        // Rule-based fallback
+        if (!hasText(c.getCategorySlug()))
+            c.setCategorySlug(inferCategoryFromText(userMessage));
+        if (!hasText(c.getBrand()))
+            c.setBrand(inferBrandFromText(userMessage));
+        if (!hasText(c.getSortBy()))
+            c.setSortBy(inferSortBy(userMessage));
+        if (!hasText(c.getKeyword()))
+            c.setKeyword(inferKeywordFromText(userMessage, c.getCategorySlug()));
+
+        return c;
+    }
+
+    private ProductSearchConstraints mergeMissingConstraintsFromHistory(ProductSearchConstraints current,
+            String userMessage,
+            List<ChatTurn> history) {
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatTurn turn = history.get(i);
+            if (!"user".equals(turn.getRole()))
+                continue;
+            if (turn.getContent().equalsIgnoreCase(userMessage))
+                continue;
+
+            ProductSearchConstraints prev = extractConstraintsWithFallback(turn.getContent(), List.of());
+
+            if (!hasText(current.getKeyword()))
+                current.setKeyword(prev.getKeyword());
+            if (!hasText(current.getCategorySlug()))
+                current.setCategorySlug(prev.getCategorySlug());
+            if (!hasText(current.getBrand()))
+                current.setBrand(prev.getBrand());
+            if (current.getMinPrice() == null)
+                current.setMinPrice(prev.getMinPrice());
+            if (current.getMaxPrice() == null)
+                current.setMaxPrice(prev.getMaxPrice());
+            if (current.getMinRating() == null)
+                current.setMinRating(prev.getMinRating());
+            if (!hasText(current.getSortBy()))
+                current.setSortBy(prev.getSortBy());
+
+            if (hasText(current.getCategorySlug()) || hasText(current.getBrand()) || hasText(current.getKeyword())) {
+                break;
+            }
+        }
+        return current;
+    }
+
+    private void normalizeConstraintsForCatalog(ProductSearchConstraints c, String userMessage) {
+        // Generic keyword -> category only
+        if (hasText(c.getKeyword())) {
+            String kw = c.getKeyword().trim().toLowerCase(Locale.ROOT);
+
+            if (kw.contains("điện thoại") || kw.contains("smartphone") || kw.contains("phone") || kw.contains("mobile")) {
+                kw = kw.replace("điện thoại", "").replace("smartphone", "").replace("phone", "").replace("mobile", "").trim();
+                if (!hasText(c.getCategorySlug()))
+                    c.setCategorySlug("electronics");
+            }
+            if (kw.contains("quần áo") || kw.contains("thời trang") || kw.contains("fashion")) {
+                kw = kw.replace("quần áo", "").replace("thời trang", "").replace("fashion", "").trim();
+                if (!hasText(c.getCategorySlug()))
+                    c.setCategorySlug("fashion");
+            }
+            if (kw.contains("mỹ phẩm") || kw.contains("skincare") || kw.contains("beauty")) {
+                kw = kw.replace("mỹ phẩm", "").replace("skincare", "").replace("beauty", "").trim();
+                if (!hasText(c.getCategorySlug()))
+                    c.setCategorySlug("beauty");
+            }
+            if (kw.contains("nội thất") || kw.contains("home") || kw.contains("home living")) {
+                kw = kw.replace("nội thất", "").replace("home living", "").replace("home", "").trim();
+                if (!hasText(c.getCategorySlug()))
+                    c.setCategorySlug("home-living");
+            }
+            
+            c.setKeyword(kw.isEmpty() ? null : kw);
+        }
+
+        // Nếu là điện thoại Samsung / Apple mà keyword null, cứ để brand + category
+        // query
+        if (!hasText(c.getKeyword()) && "electronics".equals(c.getCategorySlug()) && hasText(c.getBrand())) {
+            // Không cần ép keyword; brand + category đủ lọc catalog seed tốt hơn
+        }
+
+        // Nếu user nói "đồng hồ" thì vẫn giữ keyword vì nó có giá trị search
+        if (!hasText(c.getKeyword()) && containsAny(userMessage, "đồng hồ", "smartwatch", "watch")) {
+            c.setKeyword("đồng hồ");
+            c.setCategorySlug("electronics");
+        }
+    }
+
+    private boolean shouldAskClarification(ProductSearchConstraints c,
+            boolean heuristicFollowUp,
+            List<Product> products) {
+        boolean broad = !hasText(c.getKeyword())
+                && hasText(c.getCategorySlug())
+                && !hasText(c.getBrand())
+                && c.getMinPrice() == null
+                && c.getMaxPrice() == null
+                && c.getMinRating() == null;
+
+        return !Boolean.TRUE.equals(c.getIsFollowUp()) && !heuristicFollowUp && broad && products.size() >= 3;
+    }
+
+    private Sort buildSort(String sortBy) {
+        if (!hasText(sortBy)) {
+            return Sort.by(
+                    Sort.Order.desc("averageRating"),
+                    Sort.Order.desc("soldCount"),
+                    Sort.Order.desc("createdAt"));
+        }
+
+        return switch (sortBy) {
+            case "priceAsc" -> Sort.by(Sort.Order.asc("basePrice"), Sort.Order.desc("averageRating"));
+            case "priceDesc" -> Sort.by(Sort.Order.desc("basePrice"), Sort.Order.desc("averageRating"));
+            case "bestSelling" -> Sort.by(Sort.Order.desc("soldCount"), Sort.Order.desc("averageRating"));
+            case "topRated" ->
+                Sort.by(Sort.Order.desc("averageRating"), Sort.Order.desc("reviewCount"), Sort.Order.desc("soldCount"));
+            case "newest" -> Sort.by(Sort.Order.desc("createdAt"));
+            default ->
+                Sort.by(Sort.Order.desc("averageRating"), Sort.Order.desc("soldCount"), Sort.Order.desc("createdAt"));
+        };
+    }
+
+    private String inferCategoryFromText(String text) {
+        String msg = safeLower(text);
+
+        if (containsAny(msg, "iphone", "samsung", "galaxy", "apple", "điện thoại", "smartphone", "đồng hồ", "watch")) {
+            return "electronics";
+        }
+        if (containsAny(msg, "áo", "váy", "giày", "hoodie", "sơ mi", "sneaker")) {
+            return "fashion";
+        }
+        if (containsAny(msg, "ghế", "bàn", "nội thất")) {
+            return "home-living";
+        }
+        if (containsAny(msg, "kem", "mặt nạ", "dưỡng ẩm", "mỹ phẩm", "skincare")) {
+            return "beauty";
+        }
+        return null;
+    }
+
+    private String inferBrandFromText(String text) {
+        String msg = safeLower(text);
+        if (containsAny(msg, "samsung", "galaxy"))
+            return "samsung";
+        if (containsAny(msg, "apple", "iphone"))
+            return "apple";
+        return null;
+    }
+
+    private String inferKeywordFromText(String text, String categorySlug) {
+        String msg = safeLower(text);
+
+        if ("fashion".equals(categorySlug)) {
+            if (msg.contains("áo"))
+                return "áo";
+            if (msg.contains("váy"))
+                return "váy";
+            if (msg.contains("giày"))
+                return "giày";
+        }
+
+        if ("home-living".equals(categorySlug)) {
+            if (msg.contains("ghế"))
+                return "ghế";
+            if (msg.contains("bàn"))
+                return "bàn";
+        }
+
+        if ("beauty".equals(categorySlug)) {
+            if (msg.contains("kem"))
+                return "kem";
+            if (msg.contains("mặt nạ"))
+                return "mặt nạ";
+        }
+
+        if ("electronics".equals(categorySlug)) {
+            if (msg.contains("đồng hồ"))
+                return "đồng hồ";
+            if (msg.contains("iphone"))
+                return "iphone";
+            if (msg.contains("galaxy"))
+                return "galaxy";
+            return null; // "điện thoại" là generic -> để null
+        }
+
+        return null;
+    }
+
+    private String inferSortBy(String text) {
+        String msg = safeLower(text);
+
+        if (containsAny(msg, "đánh giá cao", "tốt nhất", "5 sao", "nổi bật"))
+            return "topRated";
+        if (containsAny(msg, "bán chạy", "phổ biến", "nhiều người mua"))
+            return "bestSelling";
+        if (containsAny(msg, "rẻ nhất", "giá thấp nhất"))
+            return "priceAsc";
+        if (containsAny(msg, "cao cấp", "đắt hơn"))
+            return "priceDesc";
+        if (containsAny(msg, "mới nhất", "mẫu mới"))
+            return "newest";
+
+        return null;
+    }
+
+    private String textOrNull(JsonNode node, String field) {
+        if (node == null || !node.has(field) || node.get(field).isNull())
+            return null;
+        String value = node.get(field).asText(null);
+        return hasText(value) ? value.trim() : null;
+    }
+
+    private boolean hasText(String s) {
+        return s != null && !s.trim().isBlank();
+    }
+
+    private String safeLower(String s) {
+        return s == null ? "" : s.toLowerCase(Locale.ROOT);
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        String normalized = safeLower(text);
+        for (String kw : keywords) {
+            if (normalized.contains(kw.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 }
