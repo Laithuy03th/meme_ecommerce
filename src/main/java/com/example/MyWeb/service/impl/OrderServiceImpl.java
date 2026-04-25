@@ -45,6 +45,7 @@ public class OrderServiceImpl implements OrderService {
         private final ShippingMethodRepository shippingMethodRepository;
         private final com.example.MyWeb.repository.OrderStatusHistoryRepository orderStatusHistoryRepository;
         private final com.example.MyWeb.service.EmailService emailService;
+        private final ReviewRepository reviewRepository;
 
         private OrderItemResponse toItemDto(OrderItem item) {
                 Product p = item.getProduct();
@@ -421,6 +422,7 @@ public class OrderServiceImpl implements OrderService {
                                                                 : "")
                                                 .quantity(item.getQuantity())
                                                 .price(item.getUnitPrice())
+                                                .hasReviewed(reviewRepository.existsByUser_IdAndOrderItem_Id(order.getUser().getId(), item.getId()))
                                                 .build())
                                 .collect(java.util.stream.Collectors.toList());
 
@@ -454,6 +456,10 @@ public class OrderServiceImpl implements OrderService {
                                 .totalAmount(order.getTotalAmount())
                                 .shippingAddress(addressDto)
                                 .paymentMethod(paymentDto)
+                                .deliveredAt(orderStatusHistoryRepository
+                                                .findFirstByOrder_IdAndToStatusOrderByCreatedAtDesc(order.getId(), OrderStatus.DELIVERED)
+                                                .map(OrderStatusHistory::getCreatedAt)
+                                                .orElse(null))
                                 .build();
         }
 
@@ -511,6 +517,14 @@ public class OrderServiceImpl implements OrderService {
                 if (order.getStatus() != OrderStatus.DELIVERED) {
                         throw new RuntimeException("Cannot request return for order with status: " + order.getStatus());
                 }
+
+                // Shopee Policy: Max 10 days for return after delivery
+                orderStatusHistoryRepository.findFirstByOrder_IdAndToStatusOrderByCreatedAtDesc(orderId, OrderStatus.DELIVERED)
+                                .ifPresent(h -> {
+                                        if (h.getCreatedAt().plusDays(10).isBefore(LocalDateTime.now())) {
+                                                throw new RuntimeException("The 10-day return window for this order has expired.");
+                                        }
+                                });
 
                 OrderStatus oldStatus = order.getStatus();
                 order.setStatus(OrderStatus.RETURN_REQUESTED);

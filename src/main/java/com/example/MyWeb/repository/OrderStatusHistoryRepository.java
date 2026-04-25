@@ -10,5 +10,8 @@ import java.util.List;
 public interface OrderStatusHistoryRepository extends JpaRepository<OrderStatusHistory, Long> {
 
     List<OrderStatusHistory> findByOrder_IdOrderByCreatedAtAsc(Long orderId);
+    
+    java.util.Optional<OrderStatusHistory> findFirstByOrder_IdAndToStatusOrderByCreatedAtDesc(Long orderId, com.example.MyWeb.model.enums.OrderStatus status);
+
 
 }

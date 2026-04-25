@@ -26,7 +26,7 @@ public class FaqDataSeeder {
     private final LlmService llmService;
 
     // Tăng số này mỗi khi thêm document mới để trigger re-seed
-    private static final long EXPECTED_COUNT = 15L;
+    private static final long EXPECTED_COUNT = 16L;
 
     @Bean
     public CommandLineRunner initFaqData(FaqDocumentRepository faqRepository) {
@@ -263,6 +263,21 @@ public class FaqDataSeeder {
                                  "Thời gian xử lý đơn custom từ 3-5 ngày làm việc trước khi giao (không bao gồm thời gian ship). " +
                                  "Lưu ý: Sản phẩm custom/in theo yêu cầu KHÔNG áp dụng chính sách đổi trả thông thường, " +
                                  "chỉ hỗ trợ đổi trả nếu in sai nội dung so với yêu cầu ban đầu của khách.")
+                        .build(),
+
+                    // ================================================================
+                    // 16. BẢNG KÍCH THƯỚC (SIZE GUIDE)
+                    // ================================================================
+                    FaqDocument.builder()
+                        .title("Hướng dẫn chọn kích cỡ (Size Guide) cho áo, váy")
+                        .category("product")
+                        .content("Hướng dẫn chọn size quần áo (áo, váy) theo tiêu chuẩn quốc tế cho các sản phẩm tại MemeShop: " +
+                                 "Size S: Chiều cao 150cm - 160cm, Cân nặng 40kg - 50kg. " +
+                                 "Size M: Chiều cao 160cm - 165cm, Cân nặng 50kg - 55kg. " +
+                                 "Size L: Chiều cao 165cm - 170cm, Cân nặng 55kg - 60kg. " +
+                                 "Size XL: Chiều cao 170cm - 175cm, Cân nặng 60kg - 65kg. " +
+                                 "Size XXL: Chiều cao 175cm - 180cm, Cân nặng 65kg - 75kg. " +
+                                 "Lưu ý: Bảng size mang tính chất tham khảo. Với các thiết kế váy dáng ôm hoặc nếu số đo của bạn ở ranh giới giữa 2 size, nên ưu tiên chọn size lớn hơn để thoải mái hơn.")
                         .build()
                 );
 

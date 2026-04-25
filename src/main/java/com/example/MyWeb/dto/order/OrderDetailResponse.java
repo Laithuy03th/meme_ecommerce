@@ -21,6 +21,8 @@ public class OrderDetailResponse {
     private Double totalAmount;
     private ShippingAddressDto shippingAddress;
     private PaymentMethodDto paymentMethod;
+    private LocalDateTime deliveredAt;
+
 
     @Getter
     @Setter
@@ -46,6 +48,7 @@ public class OrderDetailResponse {
         private String variantInfo;
         private int quantity;
         private Double price;
+        private boolean hasReviewed;
     }
 
     @Getter
