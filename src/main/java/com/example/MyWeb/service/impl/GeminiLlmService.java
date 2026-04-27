@@ -396,7 +396,9 @@ public class GeminiLlmService implements LlmService {
                 String role = turn.getRole().equals("bot") ? "model" : turn.getRole();
                 
                 if (role.equals(lastRole)) {
-                    continue; 
+                    log.warn("[Gemini] Skipping duplicate consecutive role '{}' at turn index {}. " +
+                             "Possible duplicate DB entry or restore issue.", role, i);
+                    continue;
                 }
                 lastRole = role;
 

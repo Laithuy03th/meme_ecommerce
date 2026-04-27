@@ -9,6 +9,7 @@ import com.example.MyWeb.model.FaqDocument;
 import com.example.MyWeb.model.Order;
 import com.example.MyWeb.model.Product;
 import com.example.MyWeb.repository.ChatMessageRepository;
+import com.example.MyWeb.service.ChatHistoryService;
 import com.example.MyWeb.repository.ChatbotKnowledgeRepository;
 import com.example.MyWeb.repository.OrderRepository;
 import com.example.MyWeb.repository.ProductRepository;
@@ -50,6 +51,7 @@ import java.util.stream.Collectors;
 public class ChatbotServiceImpl implements ChatbotService {
 
     private final ChatMessageRepository chatMessageRepository;
+    private final ChatHistoryService chatHistoryService;
     private final ChatbotKnowledgeRepository knowledgeRepository;
     private final ProductRepository productRepository;
     private final OrderRepository orderRepository;
@@ -90,14 +92,8 @@ public class ChatbotServiceImpl implements ChatbotService {
             }
         }
 
-        // 2. Classify intent via Gemini LLM
-        String intent;
-        try {
-            intent = llmService.classifyIntent(userMessage, history);
-        } catch (Exception e) {
-            log.error("LLM classification failed, using fallback", e);
-            intent = "other";
-        }
+        // 2. Resolve intent: rule-based safety net + Gemini hỗ trợ
+        String intent = resolveIntent(userMessage, history, sessionId);
 
         log.info("[Chatbot] Intent: '{}'", intent);
 
@@ -120,8 +116,8 @@ public class ChatbotServiceImpl implements ChatbotService {
         // 5. Update context with bot response
         contextService.addBotTurn(sessionId, response.getResponse(), intent);
 
-        // 6. Save to DB trong transaction riêng biệt
-        saveChatMessage(request, response);
+        // 6. Save to DB qua ChatHistoryService (transaction REQUIRES_NEW hoạt động đúng)
+        chatHistoryService.saveChatMessage(request, response);
 
         return response;
     }
@@ -222,21 +218,63 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         normalizeConstraintsForCatalog(constraints, userMessage);
 
+        log.info("[ProductSearch] constraints: keyword='{}', category='{}', brand='{}', maxPrice={}",
+                constraints.getKeyword(), constraints.getCategorySlug(),
+                constraints.getBrand(), constraints.getMaxPrice());
+
         List<Product> products = searchProductsAdvanced(constraints, 5);
+        log.info("[ProductSearch] found {} products (exact)", products.size());
 
         if (products.isEmpty()) {
-            String clarifyResponse = llmService.generateResponse(
-                    """
-                            Không tìm thấy sản phẩm phù hợp trong DB.
-                            Hãy xin lỗi ngắn gọn, nêu rằng hiện chưa thấy sản phẩm khớp hoàn toàn,
-                            rồi hỏi user 1 câu ngắn để làm rõ hơn về ngân sách, thương hiệu hoặc loại sản phẩm.
-                            """,
-                    userMessage,
-                    history);
+            List<Product> nearestProducts = searchNearestProducts(constraints, 5);
+            log.info("[ProductSearch] found {} products (nearest fallback)", nearestProducts.size());
 
-            return builder.response(clarifyResponse)
+            if (!nearestProducts.isEmpty()) {
+                List<Map<String, Object>> nearestData = nearestProducts.stream().map(p -> {
+                    Map<String, Object> data = new LinkedHashMap<>();
+                    data.put("id", p.getId());
+                    data.put("name", p.getName());
+                    data.put("price", p.getBasePrice());
+                    data.put("imageUrl", p.getThumbnailUrl());
+                    data.put("slug", p.getSlug());
+                    data.put("detailUrl", "/products/" + (p.getSlug() != null ? p.getSlug() : p.getId()));
+                    data.put("brand", p.getBrand());
+                    data.put("rating", p.getAverageRating());
+                    return data;
+                }).collect(Collectors.toList());
+
+                Map<String, Object> nearestMeta = new LinkedHashMap<>();
+                nearestMeta.put("keyword", constraints.getKeyword());
+                nearestMeta.put("category", constraints.getCategorySlug());
+                nearestMeta.put("exactMatch", false);
+
+                Map<String, Object> nearestPayload = new LinkedHashMap<>();
+                nearestPayload.put("products", nearestData);
+                nearestPayload.put("searchMeta", nearestMeta);
+
+                String nearestResponse;
+                if (constraints.getMaxPrice() != null) {
+                    nearestResponse = String.format(
+                            "Mình chưa thấy mẫu %s nào khớp hoàn toàn với mức dưới %,.0fđ. Tuy nhiên, có vài mẫu gần nhất để bạn tham khảo nhé! 😊",
+                            hasText(constraints.getKeyword()) ? constraints.getKeyword() : "sản phẩm",
+                            constraints.getMaxPrice());
+                } else {
+                    nearestResponse = "Mình chưa thấy sản phẩm khớp hoàn toàn, nhưng có vài mẫu gần nhất để bạn tham khảo nhé! 😊";
+                }
+
+                return builder
+                        .response(nearestResponse)
+                        .data(nearestPayload)
+                        .quickReplies(List.of(
+                                QuickReply.builder().label("Xem tất cả kết quả").value("xem tất cả sản phẩm tương tự").build(),
+                                QuickReply.builder().label("Tìm loại khác").value("tôi muốn tìm loại sản phẩm khác").build()))
+                        .build();
+            }
+
+            // Không có nearest cũng không có: hỏi lại ngắn gọn
+            return builder
+                    .response("Mình chưa tìm thấy sản phẩm phù hợp trong dữ liệu hiện tại. Bạn muốn đổi ngân sách, màu sắc hoặc loại sản phẩm không ạ?")
                     .quickReplies(List.of(
-                            QuickReply.builder().label("Xem tất cả sản phẩm").value("xem tất cả sản phẩm").build(),
                             QuickReply.builder().label("Tìm lại").value("tôi muốn tìm sản phẩm khác").build()))
                     .build();
         }
@@ -333,26 +371,37 @@ public class ChatbotServiceImpl implements ChatbotService {
     private ChatResponse handlePolicyQuestion(ChatResponse.ChatResponseBuilder builder,
             String userMessage, List<ChatTurn> history) {
 
-        // 1. RAG Retrieve: Tìm kiếm tài liệu FAQ phù hợp nhất từ pgvector
+        // 1. RAG Retrieve
         List<FaqDocument> relevantDocs = ragService.retrieveRelevantContext(userMessage, 3);
+        log.info("[RAG] retrieved {} FAQ docs for query='{}'", relevantDocs.size(), userMessage);
 
-        // 2. Build Context String
-        String policyContext = "(Rất tiếc, hiện tại không tìm thấy tài liệu chính sách phù hợp. Hãy trả lời dựa trên kiến thức chung hợp lý nhất của một cửa hàng điện tử, và khuyên khách hàng liên hệ hotline.)";
-
-        if (!relevantDocs.isEmpty()) {
-            policyContext = ragService.buildContextString(relevantDocs);
+        // 2. Nếu không tìm thấy FAQ: trả hardcoded, không để LLM bịa chính sách
+        if (relevantDocs.isEmpty()) {
+            return builder
+                    .response("Mình chưa tìm thấy tài liệu chính sách phù hợp trong kho FAQ hiện tại. " +
+                            "Bạn có thể hỏi cụ thể hơn về: thanh toán, đổi trả, giao hàng, bảo hành hoặc voucher nhé 😊")
+                    .quickReplies(Arrays.asList(
+                            QuickReply.builder().label("💳 Hình thức thanh toán").value("các hình thức thanh toán hiện có").build(),
+                            QuickReply.builder().label("🔄 Chính sách đổi trả").value("chính sách đổi trả hàng").build(),
+                            QuickReply.builder().label("🚚 Giao hàng").value("chính sách giao hàng").build(),
+                            QuickReply.builder().label("🎁 Voucher").value("chính sách voucher").build()))
+                    .build();
         }
 
+        // 3. Có FAQ → dùng RAG context để LLM tổng hợp
+        String policyContext = ragService.buildContextString(relevantDocs);
+
         String systemPrompt = String.format("""
-                === NGỮ CẢNH CHÍNH SÁCH (Tài liệu từ hệ thống RAG) ===
+                === NGỮ CẢNH CHÍNH SÁCH TỪ FAQ/RAG ===
                 %s
 
                 === HƯỚNG DẪN ===
-                1. Hãy đóng vai trợ lý AI của MemeShop.
-                2. CHỈ sử dụng thông tin từ 'NGỮ CẢNH CHÍNH SÁCH' ở trên để trả lời câu hỏi.
-                3. Tuyệt đối KHÔNG BỊA ĐẶT chính sách.
-                4. Nếu câu hỏi không được đề cập trong ngữ cảnh, hãy xin lỗi và đề nghị liên hệ support@myweb.com.
-                5. Trả lời ngắn gọn, thân thiện, dùng bullet points.
+                Bạn là trợ lý AI của MemeShop.
+                Chỉ trả lời dựa trên ngữ cảnh chính sách ở trên.
+                Nếu có thông tin, trả lời trực tiếp, không hỏi vòng vo.
+                Nếu user hỏi về thanh toán, nêu rõ các hình thức thanh toán và quy trình nếu context có.
+                Nếu user hỏi về đổi trả/trả hàng, nêu điều kiện cụ thể nếu context có.
+                Trả lời ngắn gọn, dùng bullet points, thân thiện.
                 """, policyContext);
 
         String response = llmService.generateResponse(systemPrompt, userMessage, history);
@@ -360,9 +409,9 @@ public class ChatbotServiceImpl implements ChatbotService {
         return builder
                 .response(response)
                 .quickReplies(Arrays.asList(
-                        QuickReply.builder().label("🔄 Đổi trả").value("tôi muốn đổi trả hàng").build(),
-                        QuickReply.builder().label("🚚 Phí ship").value("phí giao hàng bao nhiêu").build(),
-                        QuickReply.builder().label("💳 Thanh toán").value("có thể thanh toán bằng cách nào").build()))
+                        QuickReply.builder().label("💳 Thanh toán").value("các hình thức thanh toán hiện có").build(),
+                        QuickReply.builder().label("🔄 Đổi trả").value("chính sách đổi trả hàng").build(),
+                        QuickReply.builder().label("🚚 Giao hàng").value("chính sách giao hàng").build()))
                 .build();
     }
 
@@ -497,23 +546,16 @@ public class ChatbotServiceImpl implements ChatbotService {
 
     private ChatResponse handleOther(ChatResponse.ChatResponseBuilder builder,
             String userMessage, List<ChatTurn> history) {
-        String systemPrompt = """
-                User hỏi một câu không rõ ràng hoặc ngoài phạm vi hỗ trợ.
-                Hãy:
-                1. Thừa nhận nhẹ nhàng rằng bạn không chắc ý họ muốn gì
-                2. Gợi ý 2-3 điều bạn CÓ THỂ giúp (sản phẩm, đơn hàng, chính sách)
-                3. Hỏi họ muốn làm gì
-                Giữ ngắn gọn, không quá 4 câu.
-                """;
-
-        String response = llmService.generateResponse(systemPrompt, userMessage, history);
-
+        // Hardcoded — không gọi LLM để tránh hallucination về catalog
         return builder
-                .response(response)
+                .response("Mình chưa xác định rõ yêu cầu của bạn. " +
+                        "Hiện mình có thể hỗ trợ: tìm sản phẩm, tư vấn sản phẩm, tra cứu đơn hàng và giải đáp chính sách mua hàng/đổi trả/thanh toán. " +
+                        "Bạn muốn mình hỗ trợ theo hướng nào ạ? 😊")
                 .quickReplies(Arrays.asList(
                         QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build(),
-                        QuickReply.builder().label("📦 Đơn hàng").value("xem đơn hàng của tôi").build(),
-                        QuickReply.builder().label("💬 Liên hệ").value("tôi muốn liên hệ support").icon("💬").build()))
+                        QuickReply.builder().label("💳 Chính sách thanh toán").value("các hình thức thanh toán hiện có").build(),
+                        QuickReply.builder().label("🔄 Chính sách đổi trả").value("chính sách đổi trả hàng").build(),
+                        QuickReply.builder().label("📦 Đơn hàng").value("xem đơn hàng của tôi").build()))
                 .build();
     }
 
@@ -622,39 +664,9 @@ public class ChatbotServiceImpl implements ChatbotService {
         };
     }
 
-    /**
-     * Lưu lịch sử chat vào DB.
-     * Dùng REQUIRES_NEW để transaction hoàn toàn độc lập, tránh bị nhiễm trạng thái
-     * rollback-only
-     * từ bất kỳ exception nào trong processMessage.
-     */
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
-    protected void saveChatMessage(ChatRequest request, ChatResponse response) {
-        try {
-            // Lưu tin nhắn user
-            chatMessageRepository.save(ChatMessage.builder()
-                    .sessionId(request.getSessionId())
-                    .message(request.getMessage())
-                    .response("") // trường response của user turn = rỗng
-                    .messageType(ChatMessage.MessageType.USER)
-                    .userId(request.getUserId())
-                    .build());
-
-            // Lưu phản hồi bot
-            chatMessageRepository.save(ChatMessage.builder()
-                    .sessionId(request.getSessionId())
-                    .message(request.getMessage())
-                    .response(response.getResponse() != null ? response.getResponse() : "")
-                    .messageType(ChatMessage.MessageType.BOT)
-                    .intent(response.getIntent())
-                    .userId(request.getUserId())
-                    .build());
-
-        } catch (Exception e) {
-            // Không để lỗi DB lăn ra làm hỏng response trả về cho user
-            log.error("[Chatbot] Failed to save chat message to DB: {}", e.getMessage());
-        }
-    }
+    // saveChatMessage đã được chuyển sang ChatHistoryService để
+    // @Transactional(REQUIRES_NEW) hoạt động đúng qua Spring AOP proxy.
+    // Self-invocation trong cùng class không đi qua proxy → annotation bị bỏ qua.
 
     private ProductSearchConstraints extractConstraintsWithFallback(String userMessage, List<ChatTurn> history) {
         ProductSearchConstraints c = ProductSearchConstraints.builder()
@@ -732,6 +744,20 @@ public class ChatbotServiceImpl implements ChatbotService {
     }
 
     private void normalizeConstraintsForCatalog(ProductSearchConstraints c, String userMessage) {
+        // Normalize váy/đầm/dress trước để đảm bảo category được set
+        if (containsAny(userMessage, "váy", "đầm", "dress")) {
+            c.setCategorySlug("fashion");
+            if (!hasText(c.getKeyword())) {
+                c.setKeyword("váy");
+            } else {
+                String kw = c.getKeyword().toLowerCase(Locale.ROOT);
+                // Nếu keyword quá nhiễu (LLM bịa tính từ), normalize về "váy"
+                if (containsAny(kw, "đẹp", "xinh", "giá rẻ", "rẻ", "phải chăng")) {
+                    c.setKeyword("váy");
+                }
+            }
+        }
+
         // Generic keyword -> category only
         if (hasText(c.getKeyword())) {
             String kw = c.getKeyword().trim().toLowerCase(Locale.ROOT);
@@ -756,12 +782,11 @@ public class ChatbotServiceImpl implements ChatbotService {
                 if (!hasText(c.getCategorySlug()))
                     c.setCategorySlug("home-living");
             }
-            
+
             c.setKeyword(kw.isEmpty() ? null : kw);
         }
 
-        // Nếu là điện thoại Samsung / Apple mà keyword null, cứ để brand + category
-        // query
+        // Nếu là điện thoại Samsung / Apple mà keyword null, cứ để brand + category query
         if (!hasText(c.getKeyword()) && "electronics".equals(c.getCategorySlug()) && hasText(c.getBrand())) {
             // Không cần ép keyword; brand + category đủ lọc catalog seed tốt hơn
         }
@@ -912,5 +937,136 @@ public class ChatbotServiceImpl implements ChatbotService {
             }
         }
         return false;
+    }
+
+    // =========================================================================
+    // Intent Resolution (Rule-based safety net + Gemini support)
+    // =========================================================================
+
+    /**
+     * Resolve intent: dùng rule-based trước (chắc chắn), Gemini chỉ là fallback.
+     * Không để Gemini là single point of failure.
+     */
+    private String resolveIntent(String userMessage, List<ChatTurn> history, String sessionId) {
+        String ruleIntent = detectIntentByRules(userMessage, history, sessionId);
+
+        // Nếu rule đã chắc thì dùng luôn, không cần hỏi Gemini
+        if (!"other".equals(ruleIntent)) {
+            log.info("[Chatbot] Rule-based intent: '{}'", ruleIntent);
+            return ruleIntent;
+        }
+
+        // Rule chưa chắc → hỏi Gemini
+        try {
+            String llmIntent = llmService.classifyIntent(userMessage, history);
+            log.info("[Chatbot] Gemini intent: '{}' for: {}", llmIntent,
+                    userMessage.substring(0, Math.min(50, userMessage.length())));
+
+            if (List.of("product", "policy", "order", "greeting", "other").contains(llmIntent)) {
+                return llmIntent;
+            }
+
+            log.warn("[Chatbot] Gemini returned unexpected intent '{}', fallback to 'other'", llmIntent);
+            return "other";
+        } catch (Exception e) {
+            log.error("[Chatbot] LLM classify failed, rule fallback: {}", ruleIntent, e);
+            return ruleIntent; // ruleIntent = "other" lúc này
+        }
+    }
+
+    /**
+     * Rule-based intent detection.
+     * Thứ tự: order > policy > product > greeting > follow-up > other
+     * Policy check TRƯỚC product để tránh "chính sách mua hàng" bị nhầm thành product.
+     */
+    private String detectIntentByRules(String message, List<ChatTurn> history, String sessionId) {
+        String msg = safeLower(message);
+
+        // 1. Order
+        if (containsAny(msg,
+                "đơn hàng", "đơn ", "order", "mã đơn", "trạng thái đơn",
+                "kiểm tra đơn", "theo dõi đơn", "đơn của tôi")) {
+            return "order";
+        }
+
+        // 2. Policy / FAQ / RAG — TRƯỚC product để "chính sách mua hàng" không bị nhầm
+        if (containsAny(msg,
+                "chính sách", "mua hàng", "trả hàng", "đổi trả", "hoàn trả",
+                "bảo hành", "giao hàng", "phí ship", "vận chuyển",
+                "thanh toán", "hình thức thanh toán", "quy trình thanh toán",
+                "cod", "vnpay", "momo", "hoàn tiền", "voucher", "khuyến mãi")) {
+            return "policy";
+        }
+
+        // 3. Product — dùng product noun cụ thể, không dùng "mua" đơn thuần
+        if (containsAny(msg,
+                "váy", "đầm", "dress",
+                "áo", "hoodie", "sơ mi", "giày", "sneaker",
+                "điện thoại", "iphone", "samsung", "galaxy", "đồng hồ",
+                "ghế", "kem", "mặt nạ", "mỹ phẩm", "dưỡng ẩm")) {
+            return "product";
+        }
+
+        if (containsAny(msg, "tìm sản phẩm", "mua sản phẩm", "tư vấn sản phẩm", "gợi ý sản phẩm")) {
+            return "product";
+        }
+
+        // 4. Greeting / Contact
+        if (containsAny(msg, "xin chào", "chào", "hello", "hi", "liên hệ", "hotline", "support")) {
+            return "greeting";
+        }
+
+        // 5. Follow-up theo context session
+        String lastIntent = contextService.getLastIntent(sessionId);
+
+        if ("product".equals(lastIntent)
+                && containsAny(msg, "cái nào", "con nào", "loại nào", "rẻ hơn", "tốt hơn",
+                        "so sánh", "mẫu nào", "đúng rồi", "tìm cho mình")) {
+            return "product";
+        }
+
+        if ("policy".equals(lastIntent)
+                && containsAny(msg, "rõ hơn", "chi tiết", "quy trình", "hình thức",
+                        "khâu thanh toán", "trả hàng")) {
+            return "policy";
+        }
+
+        return "other";
+    }
+
+    /**
+     * Tìm sản phẩm gần nhất khi exact search trả rỗng.
+     * Bỏ filter giá/rating, giữ keyword/category/brand.
+     */
+    private List<Product> searchNearestProducts(ProductSearchConstraints c, int limit) {
+        Pageable pageable = PageRequest.of(0, limit,
+                Sort.by(Sort.Order.asc("basePrice"), Sort.Order.desc("averageRating")));
+
+        // Relax: bỏ giá/rating, giữ keyword + category + brand
+        Specification<Product> spec = ProductSpecifications.search(
+                c.getKeyword(),
+                c.getCategorySlug(),
+                null, // bỏ minPrice
+                null, // bỏ maxPrice
+                c.getBrand(),
+                null  // bỏ minRating
+        );
+
+        List<Product> results = new ArrayList<>(productRepository.findAll(spec, pageable).getContent());
+
+        // Nếu vẫn rỗng, thử bỏ keyword luôn, chỉ giữ category
+        if (results.isEmpty() && hasText(c.getCategorySlug())) {
+            Specification<Product> categoryOnly = ProductSpecifications.search(
+                    null,
+                    c.getCategorySlug(),
+                    null,
+                    null,
+                    c.getBrand(),
+                    null
+            );
+            results = new ArrayList<>(productRepository.findAll(categoryOnly, pageable).getContent());
+        }
+
+        return results;
     }
 }

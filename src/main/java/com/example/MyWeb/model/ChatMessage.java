@@ -19,10 +19,10 @@ public class ChatMessage {
     @Column(nullable = false)
     private String sessionId; // Session ID để track conversation
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String message;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String response;
 
     @Enumerated(EnumType.STRING)
