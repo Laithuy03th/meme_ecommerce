@@ -3,6 +3,7 @@ package com.example.MyWeb.service;
 import com.example.MyWeb.dto.ChatRequest;
 import com.example.MyWeb.dto.ChatResponse;
 import com.example.MyWeb.dto.ChatTurn;
+import com.example.MyWeb.dto.ChatHistoryItemResponse;
 import com.example.MyWeb.dto.QuickReply;
 import com.example.MyWeb.model.ChatMessage;
 import com.example.MyWeb.model.FaqDocument;
@@ -18,6 +19,8 @@ import com.example.MyWeb.service.impl.GeminiLlmService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -123,8 +126,32 @@ public class ChatbotServiceImpl implements ChatbotService {
     }
 
     @Override
-    public List<ChatMessage> getChatHistory(String sessionId) {
-        return chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+    public List<ChatHistoryItemResponse> getChatHistory(String sessionId) {
+        List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+        
+        return messages.stream().map(msg -> {
+            ChatHistoryItemResponse response = new ChatHistoryItemResponse();
+            response.setRole(msg.getMessageType() == ChatMessage.MessageType.USER ? "user" : "bot");
+            response.setContent(msg.getMessageType() == ChatMessage.MessageType.USER ? msg.getMessage() : msg.getResponse());
+            response.setIntent(msg.getIntent());
+            response.setSessionId(msg.getSessionId());
+            response.setCreatedAt(msg.getCreatedAt());
+            
+            try {
+                if (msg.getResponseData() != null && !msg.getResponseData().isEmpty()) {
+                    Map<String, Object> data = objectMapper.readValue(msg.getResponseData(), new TypeReference<Map<String, Object>>() {});
+                    response.setData(data);
+                }
+                if (msg.getQuickReplies() != null && !msg.getQuickReplies().isEmpty()) {
+                    List<QuickReply> quickReplies = objectMapper.readValue(msg.getQuickReplies(), new TypeReference<List<QuickReply>>() {});
+                    response.setQuickReplies(quickReplies);
+                }
+            } catch (Exception e) {
+                log.error("Failed to parse JSON payload for chat history", e);
+            }
+            
+            return response;
+        }).toList();
     }
 
     @Override
@@ -513,14 +540,20 @@ public class ChatbotServiceImpl implements ChatbotService {
                 return builder.response("⚠️ Đơn hàng #" + orderId + " không thuộc về tài khoản của bạn.").build();
             }
 
-            // LLM tổng hợp status message tự nhiên
-            String orderInfo = String.format(
-                    "Đơn hàng #%d, trạng thái: %s, tổng tiền: %.0f VNĐ, đặt lúc: %s",
-                    order.getId(), order.getStatus(), order.getTotalAmount(), order.getCreatedAt());
-
-            String systemPrompt = "Thông báo trạng thái đơn hàng ngắn gọn, thân thiện dựa trên thông tin sau: "
-                    + orderInfo;
-            String response = llmService.generateResponse(systemPrompt, userMessage, history);
+            String formattedStatus = switch (order.getStatus()) {
+                case PENDING -> "Chờ xác nhận";
+                case CONFIRMED -> "Đã xác nhận";
+                case SHIPPED -> "Đang giao";
+                case DELIVERED -> "Đã giao hàng";
+                case CANCELED -> "Đã hủy";
+                case RETURN_REQUESTED -> "Yêu cầu trả hàng";
+                default -> order.getStatus().toString();
+            };
+            String formattedPrice = new java.text.DecimalFormat("#,###").format(order.getTotalAmount()) + " đ";
+            String response = "Đơn hàng **#" + order.getId() + "** của bạn đang ở trạng thái **" + formattedStatus + "**.\n\n" +
+                "- Tổng tiền: **" + formattedPrice + "**\n" +
+                "- Ngày cập nhật: " + order.getUpdatedAt() + "\n\n" +
+                "Bạn có thể xem chi tiết đơn hàng bằng cách nhấn nút bên dưới.";
 
             Map<String, Object> orderData = new LinkedHashMap<>();
             orderData.put("id", order.getId());
@@ -581,43 +614,6 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         List<Product> results = new ArrayList<>(productRepository.findAll(spec, pageable).getContent());
 
-        // Relax 1: bỏ keyword nhưng giữ category/brand/price/rating
-        if (results.isEmpty() && hasText(c.getKeyword())) {
-            Specification<Product> relaxedKeyword = ProductSpecifications.search(
-                    null,
-                    c.getCategorySlug(),
-                    c.getMinPrice(),
-                    c.getMaxPrice(),
-                    c.getBrand(),
-                    c.getMinRating());
-            results = new ArrayList<>(productRepository.findAll(relaxedKeyword, pageable).getContent());
-        }
-
-        // Relax 2: nếu user yêu cầu "đánh giá cao" quá gắt thì thử bỏ minRating
-        if (results.isEmpty() && c.getMinRating() != null) {
-            Specification<Product> relaxedRating = ProductSpecifications.search(
-                    c.getKeyword(),
-                    c.getCategorySlug(),
-                    c.getMinPrice(),
-                    c.getMaxPrice(),
-                    c.getBrand(),
-                    null);
-            results = new ArrayList<>(productRepository.findAll(relaxedRating, pageable).getContent());
-        }
-
-        // Relax 3: bỏ luôn điều kiện giá và rating, chỉ giữ category/brand
-        if (results.isEmpty() && (c.getMinPrice() != null || c.getMaxPrice() != null)) {
-            Specification<Product> relaxedPrice = ProductSpecifications.search(
-                    c.getKeyword(),
-                    c.getCategorySlug(),
-                    null,
-                    null,
-                    c.getBrand(),
-                    null);
-            results = new ArrayList<>(productRepository.findAll(relaxedPrice, pageable).getContent());
-        }
-
-
         return results;
     }
 
@@ -639,6 +635,8 @@ public class ChatbotServiceImpl implements ChatbotService {
                 || msgLower.contains("hơn không") || msgLower.contains("tốt hơn")
                 || msgLower.contains("so sánh")
                 || msgLower.contains("cái đó") || msgLower.contains("sản phẩm đó")
+                || msgLower.contains("loại khác") || msgLower.contains("sản phẩm khác")
+                || msgLower.contains("mẫu khác")
                 || (msgLower.contains("nó") && "product".equals(lastIntent))
                 || (msgLower.length() < 20 && "product".equals(lastIntent)); // Câu rất ngắn trong ctx product
     }
@@ -786,15 +784,69 @@ public class ChatbotServiceImpl implements ChatbotService {
             c.setKeyword(kw.isEmpty() ? null : kw);
         }
 
-        // Nếu là điện thoại Samsung / Apple mà keyword null, cứ để brand + category query
-        if (!hasText(c.getKeyword()) && "electronics".equals(c.getCategorySlug()) && hasText(c.getBrand())) {
-            // Không cần ép keyword; brand + category đủ lọc catalog seed tốt hơn
-        }
-
-        // Nếu user nói "đồng hồ" thì vẫn giữ keyword vì nó có giá trị search
-        if (!hasText(c.getKeyword()) && containsAny(userMessage, "đồng hồ", "smartwatch", "watch")) {
-            c.setKeyword("đồng hồ");
-            c.setCategorySlug("electronics");
+        // Safety guard: phục hồi keyword cụ thể từ user message nếu bị null sau normalize.
+        // Quan trọng: tránh chỉ còn categorySlug → query trả toàn bộ category.
+        // Thứ tự: từ cụ thể nhất → chung nhất để tránh nhầm lẫn.
+        if (!hasText(c.getKeyword())) {
+            // Fashion
+            if (containsAny(userMessage, "hoodie", "áo hoodie")) {
+                c.setKeyword("hoodie"); c.setCategorySlug("fashion");
+            } else if (containsAny(userMessage, "sơ mi", "oxford")) {
+                c.setKeyword("sơ mi"); c.setCategorySlug("fashion");
+            } else if (containsAny(userMessage, "áo thun", "cotton")) {
+                c.setKeyword("áo thun"); c.setCategorySlug("fashion");
+            } else if (containsAny(userMessage, "váy midi", "midi")) {
+                c.setKeyword("váy midi"); c.setCategorySlug("fashion");
+            } else if (containsAny(userMessage, "váy công sở")) {
+                c.setKeyword("váy công sở"); c.setCategorySlug("fashion");
+            } else if (containsAny(userMessage, "váy", "đầm", "dress")) {
+                c.setKeyword("váy"); c.setCategorySlug("fashion");
+            } else if (containsAny(userMessage, "sneaker", "giày sneaker")) {
+                c.setKeyword("sneaker"); c.setCategorySlug("fashion");
+            } else if (containsAny(userMessage, "vans")) {
+                c.setKeyword("vans"); c.setCategorySlug("fashion");
+            } else if (containsAny(userMessage, "giày")) {
+                c.setKeyword("giày"); c.setCategorySlug("fashion");
+            // Home & Living
+            } else if (containsAny(userMessage, "công thái học", "ergonomic")) {
+                c.setKeyword("công thái học"); c.setCategorySlug("home-living");
+            } else if (containsAny(userMessage, "ghế gaming")) {
+                c.setKeyword("gaming"); c.setCategorySlug("home-living");
+            } else if (containsAny(userMessage, "ghế ăn")) {
+                c.setKeyword("ghế ăn"); c.setCategorySlug("home-living");
+            } else if (containsAny(userMessage, "ghế")) {
+                c.setKeyword("ghế"); c.setCategorySlug("home-living");
+            } else if (containsAny(userMessage, "bàn làm việc")) {
+                c.setKeyword("bàn làm việc"); c.setCategorySlug("home-living");
+            } else if (containsAny(userMessage, "bàn học")) {
+                c.setKeyword("bàn học"); c.setCategorySlug("home-living");
+            } else if (containsAny(userMessage, "bàn sofa")) {
+                c.setKeyword("bàn sofa"); c.setCategorySlug("home-living");
+            } else if (containsAny(userMessage, "bàn")) {
+                c.setKeyword("bàn"); c.setCategorySlug("home-living");
+            // Beauty
+            } else if (containsAny(userMessage, "kem mắt", "caffeine")) {
+                c.setKeyword("kem mắt"); c.setCategorySlug("beauty");
+            } else if (containsAny(userMessage, "chống lão hóa", "peptide")) {
+                c.setKeyword("kem chống lão hóa"); c.setCategorySlug("beauty");
+            } else if (containsAny(userMessage, "dưỡng ẩm", "hyaluronic")) {
+                c.setKeyword("kem dưỡng ẩm"); c.setCategorySlug("beauty");
+            } else if (containsAny(userMessage, "mặt nạ ngủ", "sleeping")) {
+                c.setKeyword("mặt nạ ngủ"); c.setCategorySlug("beauty");
+            } else if (containsAny(userMessage, "đất sét")) {
+                c.setKeyword("đất sét"); c.setCategorySlug("beauty");
+            } else if (containsAny(userMessage, "mặt nạ giấy", "sheet mask")) {
+                c.setKeyword("mặt nạ giấy"); c.setCategorySlug("beauty");
+            } else if (containsAny(userMessage, "mặt nạ")) {
+                c.setKeyword("mặt nạ"); c.setCategorySlug("beauty");
+            // Electronics
+            } else if (containsAny(userMessage, "amoled", "đồng hồ thông minh")) {
+                c.setKeyword("đồng hồ thông minh"); c.setCategorySlug("electronics");
+            } else if (containsAny(userMessage, "gps", "đồng hồ thể thao")) {
+                c.setKeyword("đồng hồ thể thao"); c.setCategorySlug("electronics");
+            } else if (containsAny(userMessage, "đồng hồ", "smartwatch", "watch")) {
+                c.setKeyword("đồng hồ"); c.setCategorySlug("electronics");
+            }
         }
     }
 
@@ -834,16 +886,25 @@ public class ChatbotServiceImpl implements ChatbotService {
     private String inferCategoryFromText(String text) {
         String msg = safeLower(text);
 
-        if (containsAny(msg, "iphone", "samsung", "galaxy", "apple", "điện thoại", "smartphone", "đồng hồ", "watch")) {
+        // Electronics: điện thoại, đồng hồ thông minh/GPS
+        if (containsAny(msg, "iphone", "samsung", "galaxy", "apple",
+                "điện thoại", "smartphone", "đồng hồ", "watch", "amoled", "gps")) {
             return "electronics";
         }
-        if (containsAny(msg, "áo", "váy", "giày", "hoodie", "sơ mi", "sneaker")) {
+        // Fashion: áo (thun/hoodie/sơ mi), váy, giày sneaker
+        if (containsAny(msg, "áo thun", "áo hoodie", "hoodie", "áo sơ mi", "sơ mi",
+                "váy", "đầm", "giày", "sneaker", "vans", "áo")) {
             return "fashion";
         }
-        if (containsAny(msg, "ghế", "bàn", "nội thất")) {
+        // Home & Living: ghế (công thái học/gaming/ăn), bàn (làm việc/học/sofa)
+        if (containsAny(msg, "ghế", "bàn làm việc", "bàn học", "bàn sofa",
+                "nội thất", "bàn", "bàn gỗ")) {
             return "home-living";
         }
-        if (containsAny(msg, "kem", "mặt nạ", "dưỡng ẩm", "mỹ phẩm", "skincare")) {
+        // Beauty: kem (dưỡng ẩm/chống lão hóa/mắt), mặt nạ (đất sét/giấy/ngủ)
+        if (containsAny(msg, "kem dưỡng", "kem chống", "kem mắt", "dưỡng ẩm",
+                "mặt nạ", "đất sét", "hyaluronic", "peptide", "caffeine",
+                "skincare", "mỹ phẩm", "serum")) {
             return "beauty";
         }
         return null;
@@ -851,10 +912,9 @@ public class ChatbotServiceImpl implements ChatbotService {
 
     private String inferBrandFromText(String text) {
         String msg = safeLower(text);
-        if (containsAny(msg, "samsung", "galaxy"))
-            return "samsung";
-        if (containsAny(msg, "apple", "iphone"))
-            return "apple";
+        if (containsAny(msg, "samsung", "galaxy")) return "samsung";
+        if (containsAny(msg, "apple", "iphone")) return "apple";
+        if (containsAny(msg, "vans")) return "vans";
         return null;
     }
 
@@ -862,36 +922,52 @@ public class ChatbotServiceImpl implements ChatbotService {
         String msg = safeLower(text);
 
         if ("fashion".equals(categorySlug)) {
-            if (msg.contains("áo"))
-                return "áo";
-            if (msg.contains("váy"))
-                return "váy";
-            if (msg.contains("giày"))
-                return "giày";
+            // Thứ tự ưu tiên: cụ thể → chung
+            if (msg.contains("hoodie") || msg.contains("áo hoodie")) return "hoodie";
+            if (msg.contains("sơ mi") || msg.contains("oxford"))     return "sơ mi";
+            if (msg.contains("áo thun") || msg.contains("cotton"))   return "áo thun";
+            if (msg.contains("váy midi") || msg.contains("midi"))     return "váy midi";
+            if (msg.contains("váy công sở"))                         return "váy công sở";
+            if (msg.contains("váy") || msg.contains("đầm"))           return "váy";
+            if (msg.contains("sneaker") || msg.contains("giày sneaker")) return "sneaker";
+            if (msg.contains("vans"))                                return "vans";
+            if (msg.contains("giày"))                                return "giày";
+            if (msg.contains("áo"))                                  return "áo";
         }
 
         if ("home-living".equals(categorySlug)) {
-            if (msg.contains("ghế"))
-                return "ghế";
-            if (msg.contains("bàn"))
-                return "bàn";
+            if (msg.contains("công thái học") || msg.contains("ergonomic")) return "công thái học";
+            if (msg.contains("ghế gaming") || msg.contains("gaming"))       return "gaming";
+            if (msg.contains("ghế ăn"))                                     return "ghế ăn";
+            if (msg.contains("ghế"))                                        return "ghế";
+            if (msg.contains("bàn làm việc"))                               return "bàn làm việc";
+            if (msg.contains("bàn học"))                                    return "bàn học";
+            if (msg.contains("bàn sofa"))                                   return "bàn sofa";
+            if (msg.contains("bàn"))                                        return "bàn";
         }
 
         if ("beauty".equals(categorySlug)) {
-            if (msg.contains("kem"))
-                return "kem";
-            if (msg.contains("mặt nạ"))
-                return "mặt nạ";
+            if (msg.contains("kem mắt") || msg.contains("caffeine"))               return "kem mắt";
+            if (msg.contains("chống lão hóa") || msg.contains("peptide"))          return "kem chống lão hóa";
+            if (msg.contains("dưỡng ẩm") || msg.contains("hyaluronic"))            return "kem dưỡng ẩm";
+            if (msg.contains("mặt nạ ngủ") || msg.contains("sleeping mask"))        return "mặt nạ ngủ";
+            if (msg.contains("mặt nạ đất sét") || msg.contains("đất sét"))         return "mặt nạ đất sét";
+            if (msg.contains("mặt nạ giấy") || msg.contains("sheet mask"))         return "mặt nạ giấy";
+            if (msg.contains("mặt nạ"))                                            return "mặt nạ";
+            if (msg.contains("kem"))                                               return "kem";
         }
 
         if ("electronics".equals(categorySlug)) {
-            if (msg.contains("đồng hồ"))
-                return "đồng hồ";
-            if (msg.contains("iphone"))
-                return "iphone";
-            if (msg.contains("galaxy"))
-                return "galaxy";
-            return null; // "điện thoại" là generic -> để null
+            if (msg.contains("iphone 15")) return "iphone 15";
+            if (msg.contains("iphone 14")) return "iphone 14";
+            if (msg.contains("iphone"))   return "iphone";
+            if (msg.contains("s24 ultra") || msg.contains("galaxy s24")) return "galaxy s24";
+            if (msg.contains("s23") || msg.contains("galaxy s23"))       return "galaxy s23";
+            if (msg.contains("galaxy"))   return "galaxy";
+            if (msg.contains("amoled") || msg.contains("đồng hồ thông minh")) return "đồng hồ thông minh";
+            if (msg.contains("gps") || msg.contains("đồng hồ thể thao"))      return "đồng hồ thể thao";
+            if (msg.contains("đồng hồ"))  return "đồng hồ";
+            return null; // "điện thoại" generic → để null, chỉ dùng category
         }
 
         return null;
@@ -963,6 +1039,11 @@ public class ChatbotServiceImpl implements ChatbotService {
                     userMessage.substring(0, Math.min(50, userMessage.length())));
 
             if (List.of("product", "policy", "order", "greeting", "other").contains(llmIntent)) {
+                if ("other".equals(llmIntent) && "product".equals(contextService.getLastIntent(sessionId))
+                        && isProductFollowUp(userMessage, history, sessionId)) {
+                    log.info("[Chatbot] Override Gemini 'other' to 'product' due to follow-up heuristic.");
+                    return "product";
+                }
                 return llmIntent;
             }
 
@@ -998,12 +1079,27 @@ public class ChatbotServiceImpl implements ChatbotService {
             return "policy";
         }
 
-        // 3. Product — dùng product noun cụ thể, không dùng "mua" đơn thuần
+        // 3. Product — dùng product noun cụ thể từ catalog thực tế
         if (containsAny(msg,
-                "váy", "đầm", "dress",
-                "áo", "hoodie", "sơ mi", "giày", "sneaker",
-                "điện thoại", "iphone", "samsung", "galaxy", "đồng hồ",
-                "ghế", "kem", "mặt nạ", "mỹ phẩm", "dưỡng ẩm")) {
+                // Fashion
+                "váy", "đầm", "dress", "áo thun", "áo hoodie", "hoodie",
+                "áo sơ mi", "sơ mi", "oxford", "giày", "sneaker", "vans",
+                // Electronics
+                "điện thoại", "iphone", "samsung", "galaxy", "đồng hồ", "amoled",
+                // Home & Living
+                "ghế", "bàn làm việc", "bàn học", "bàn sofa",
+                // Beauty
+                "kem dưỡng", "kem chống", "kem mắt", "mặt nạ", "dưỡng ẩm",
+                "hyaluronic", "peptide", "skincare", "mỹ phẩm")) {
+            return "product";
+        }
+
+        // Bao gồm cả "áo" đơn lẻ nhưng KHÔNG bao gồm "áo" trong câu chính sách
+        if (containsAny(msg, "áo") && !containsAny(msg, "chính sách", "thanh toán", "đổi trả")) {
+            return "product";
+        }
+        // "bàn" đơn lẻ → home-living
+        if (containsAny(msg, "bàn") && !containsAny(msg, "chính sách", "thanh toán")) {
             return "product";
         }
 
@@ -1021,7 +1117,7 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         if ("product".equals(lastIntent)
                 && containsAny(msg, "cái nào", "con nào", "loại nào", "rẻ hơn", "tốt hơn",
-                        "so sánh", "mẫu nào", "đúng rồi", "tìm cho mình")) {
+                        "so sánh", "mẫu nào", "đúng rồi", "tìm cho mình", "loại khác", "sản phẩm khác", "mẫu khác")) {
             return "product";
         }
 
@@ -1042,7 +1138,7 @@ public class ChatbotServiceImpl implements ChatbotService {
         Pageable pageable = PageRequest.of(0, limit,
                 Sort.by(Sort.Order.asc("basePrice"), Sort.Order.desc("averageRating")));
 
-        // Relax: bỏ giá/rating, giữ keyword + category + brand
+        // Bước 1 relax: bỏ giá/rating, giữ keyword + category + brand
         Specification<Product> spec = ProductSpecifications.search(
                 c.getKeyword(),
                 c.getCategorySlug(),
@@ -1054,14 +1150,29 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         List<Product> results = new ArrayList<>(productRepository.findAll(spec, pageable).getContent());
 
-        // Nếu vẫn rỗng, thử bỏ keyword luôn, chỉ giữ category
-        if (results.isEmpty() && hasText(c.getCategorySlug())) {
+        // Bước 2 relax: bỏ brand (vẫn giữ keyword để kết quả chính xác)
+        if (results.isEmpty() && hasText(c.getBrand())) {
+            Specification<Product> noBrand = ProductSpecifications.search(
+                    c.getKeyword(),
+                    c.getCategorySlug(),
+                    null,
+                    null,
+                    null,  // bỏ brand
+                    null
+            );
+            results = new ArrayList<>(productRepository.findAll(noBrand, pageable).getContent());
+        }
+
+        // Bước 3 relax: chỉ bỏ keyword nếu keyword là null (category-level search)
+        // KHÔNG bỏ keyword khi keyword có giá trị cụ thể (váy, giày, ghế...)
+        // vì sẽ trả về toàn bộ category → thừa sản phẩm không liên quan
+        if (results.isEmpty() && !hasText(c.getKeyword()) && hasText(c.getCategorySlug())) {
             Specification<Product> categoryOnly = ProductSpecifications.search(
                     null,
                     c.getCategorySlug(),
                     null,
                     null,
-                    c.getBrand(),
+                    null,
                     null
             );
             results = new ArrayList<>(productRepository.findAll(categoryOnly, pageable).getContent());

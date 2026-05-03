@@ -2,6 +2,7 @@ package com.example.MyWeb.controller;
 
 import com.example.MyWeb.dto.ChatRequest;
 import com.example.MyWeb.dto.ChatResponse;
+import com.example.MyWeb.dto.ChatHistoryItemResponse;
 import com.example.MyWeb.security.CustomUserDetails;
 import com.example.MyWeb.service.ChatbotService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -151,9 +152,9 @@ public class ChatbotController {
                                         ]
                                         """)))
         })
-        public ResponseEntity<List<com.example.MyWeb.model.ChatMessage>> getChatHistory(
+        public ResponseEntity<List<ChatHistoryItemResponse>> getChatHistory(
                         @Parameter(description = "Session ID (UUID)", example = "a1b2c3d4-e5f6-7890-abcd-ef1234567890") @PathVariable String sessionId) {
-                List<com.example.MyWeb.model.ChatMessage> history = chatbotService.getChatHistory(sessionId);
+                List<ChatHistoryItemResponse> history = chatbotService.getChatHistory(sessionId);
                 return ResponseEntity.ok(history);
         }
 

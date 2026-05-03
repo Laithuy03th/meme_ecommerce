@@ -2,6 +2,7 @@ package com.example.MyWeb.service;
 
 import com.example.MyWeb.dto.ChatRequest;
 import com.example.MyWeb.dto.ChatResponse;
+import com.example.MyWeb.dto.ChatHistoryItemResponse;
 
 import java.util.List;
 
@@ -15,7 +16,7 @@ public interface ChatbotService {
     /**
      * Get chat history for a session
      */
-    List<com.example.MyWeb.model.ChatMessage> getChatHistory(String sessionId);
+    List<ChatHistoryItemResponse> getChatHistory(String sessionId);
 
     /**
      * Initialize chatbot knowledge base

@@ -94,14 +94,7 @@ public class GeminiLlmService implements LlmService {
         return "other";
     }
 
-    @Override
-    public String generateResponse(String systemPrompt, String userMessage, List<ChatTurn> history) {
-        // Build proper Gemini multi-turn contents — đây là cách đúng thay vì nhồi
-        // history vào 1 text blob
-        java.util.List<java.util.Map<String, Object>> contents = buildMultiTurnContents(history, systemPrompt,
-                userMessage);
-        return callGeminiMultiTurn(contents, 1024);
-    }
+
 
     @Override
     public String extractProductConstraints(String userMessage, List<ChatTurn> history) {
@@ -114,36 +107,35 @@ public class GeminiLlmService implements LlmService {
                 %s
 
                 === NHIỆM VỤ ===
-                Phân tích câu hỏi tìm kiếm sản phẩm và trả về JSON thuần với các trường:
-                - "keyword": từ khóa có khả năng xuất hiện trong tên sản phẩm / mô tả / sku.
-                  Nếu người dùng chỉ nói từ quá chung như "điện thoại", "mỹ phẩm", "quần áo", "nội thất"
-                  thì để null và dùng categorySlug.
-                - "categorySlug": chỉ một trong 4 giá trị "electronics", "fashion", "home-living", "beauty"
-                - "brand": thương hiệu nếu có, ví dụ "apple", "samsung"
-                - "minPrice": giá tối thiểu dạng số, null nếu không có
-                - "maxPrice": giá tối đa dạng số, null nếu không có
-                - "minRating": nếu user nói "đánh giá cao", "tốt", "5 sao" thì map về số phù hợp
-                - "sortBy": một trong các giá trị:
-                    "topRated"    nếu user ưu tiên tốt nhất / đánh giá cao
-                    "bestSelling" nếu user hỏi bán chạy / phổ biến
-                    "priceAsc"    nếu user ưu tiên rẻ nhất
-                    "priceDesc"   nếu user ưu tiên cao cấp / đắt hơn
-                    "newest"      nếu user hỏi mẫu mới
-                    null          nếu không có
-                - "isFollowUp": true nếu đây là câu hỏi nối tiếp ngữ cảnh trước đó
+                Phân tích câu hỏi tìm kiếm sản phẩm và trả về JSON với các trường:
+                keyword, categorySlug, brand, minPrice, maxPrice, minRating, sortBy, isFollowUp.
 
-                === QUY TẮC QUAN TRỌNG ===
-                - "15 triệu" = 15000000, "7tr" = 7000000, "500k" = 500000.
-                - "điện thoại", "iphone", "samsung", "galaxy", "đồng hồ" -> categorySlug = "electronics"
-                - "áo", "váy", "giày", "sneaker", "hoodie", "sơ mi" -> categorySlug = "fashion"
-                - "ghế", "bàn", "nội thất" -> categorySlug = "home-living"
-                - "kem", "mặt nạ", "dưỡng ẩm", "mỹ phẩm" -> categorySlug = "beauty"
-                - Nếu user nói "điện thoại Samsung khoảng 17 triệu" thì:
-                  keyword = null, categorySlug = "electronics", brand = "samsung", maxPrice ≈ 17000000
-                - Nếu user nói "ghế công thái học" thì:
-                  keyword = "ghế", categorySlug = "home-living"
-                - Nếu là follow-up như "con nào rẻ hơn", "có mẫu nào rẻ hơn không",
-                  có thể để keyword/category/brand null và set isFollowUp = true.
+                === CATALOG THỰC TẾ ===
+                FASHION: Áo Thun Cotton | Áo Hoodie Zip Nỉ | Áo Sơ Mi Oxford
+                         Váy Midi Hoa Cổ Vuông | Váy Công Sở Tay Lỡ | Giày Sneaker | giày vans
+                ELECTRONICS: iPhone 15 | iPhone 14 | Galaxy S24 Ultra | Galaxy S23
+                             Đồng Hồ Thông Minh AMOLED | Đồng Hồ Thể Thao GPS
+                HOME-LIVING: Ghế Công Thái Học | Ghế Gaming | Ghế Ăn Gỗ
+                             Bàn Làm Việc Gỗ | Bàn Học Kệ Nhỏ | Bàn Sofa Tròn
+                BEAUTY: Kem Dưỡng Ẩm Hyaluronic | Kem Chống Lão Hóa Peptide | Kem Mắt Caffeine
+                        Mặt Nạ Giấy Cấp Ẩm | Mặt Nạ Đất Sét Làm Sạch | Mặt Nạ Ngủ Phục Hồi
+
+                === QUY TẮC ===
+                - keyword PHẢI là từ trong tên sản phẩm, KHÔNG dùng tính từ (đẹp/rẻ/tốt).
+                - "15 triệu"=15000000, "7tr"=7000000, "500k"=500000
+                - váy/đầm→keyword="váy",fashion | hoodie→keyword="hoodie",fashion
+                - sơ mi/oxford→keyword="sơ mi",fashion | áo thun→keyword="áo thun",fashion
+                - sneaker/giày sneaker→keyword="sneaker",fashion
+                - công thái học/ergonomic/ngồi làm việc lâu→keyword="công thái học",home-living
+                - ghế gaming→keyword="gaming",home-living | ghế ăn→keyword="ghế ăn",home-living
+                - bàn làm việc→keyword="bàn làm việc",home-living | bàn học→keyword="bàn học",home-living
+                - dưỡng ẩm/hyaluronic→keyword="kem dưỡng ẩm",beauty
+                - chống lão hóa/peptide→keyword="kem chống lão hóa",beauty
+                - kem mắt/caffeine→keyword="kem mắt",beauty
+                - mặt nạ ngủ→keyword="mặt nạ ngủ",beauty | đất sét→keyword="đất sét",beauty
+                - đồng hồ thông minh/amoled→keyword="đồng hồ thông minh",electronics
+                - đồng hồ thể thao/gps→keyword="đồng hồ thể thao",electronics
+                - Điện thoại chung→keyword=null,electronics | follow-up→isFollowUp=true
 
                 Câu hỏi: "%s"
 
@@ -178,7 +170,7 @@ public class GeminiLlmService implements LlmService {
             });
         } catch (Exception e) {
             log.error("Failed to serialize embedding request body", e);
-            return new float[768];
+            return new float[0];
         }
 
         Request request = new Request.Builder()
@@ -191,7 +183,7 @@ public class GeminiLlmService implements LlmService {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "no body";
                 log.error("Gemini Embedding API error: HTTP {} — {}", response.code(), errorBody);
-                return new float[768];
+                return new float[0];
             }
 
             String responseBody = response.body().string();
@@ -207,11 +199,11 @@ public class GeminiLlmService implements LlmService {
             }
 
             log.error("Unexpected Gemini embedding response format");
-            return new float[768];
+            return new float[0];
 
         } catch (IOException e) {
             log.error("Failed to call Gemini Embedding API: {}", e.getMessage());
-            return new float[768];
+            return new float[0];
         }
     }
 
@@ -373,112 +365,24 @@ public class GeminiLlmService implements LlmService {
         return sb.toString().trim();
     }
 
-    /**
-     * Build Gemini multi-turn contents array từ conversation history.
-     * Gemini API yêu cầu contents là list các {role, parts} xen kẽ nhau
-     * (user/model).
-     * Không được có 2 turn cùng role liên tiếp, và phải bắt đầu bằng user.
-     */
-    private java.util.List<java.util.Map<String, Object>> buildMultiTurnContents(
-            List<ChatTurn> history, String taskPrompt, String userMessage) {
+    @Override
+    public String generateResponse(String systemPrompt, String userMessage, List<ChatTurn> history) {
+        String contextSummary = buildConversationFormatted(history);
 
-        java.util.List<java.util.Map<String, Object>> contents = new java.util.ArrayList<>();
+        String prompt = String.format("""
+                %s
 
-        if (history != null && !history.isEmpty()) {
-            int start = Math.max(0, history.size() - 6);
-            while (start < history.size() && !history.get(start).getRole().equals("user")) {
-                start++;
-            }
-            
-            String lastRole = null;
-            for (int i = start; i < history.size(); i++) {
-                ChatTurn turn = history.get(i);
-                String role = turn.getRole().equals("bot") ? "model" : turn.getRole();
-                
-                if (role.equals(lastRole)) {
-                    log.warn("[Gemini] Skipping duplicate consecutive role '{}' at turn index {}. " +
-                             "Possible duplicate DB entry or restore issue.", role, i);
-                    continue;
-                }
-                lastRole = role;
+                === NGỮ CẢNH HỘI THOẠI ===
+                %s
 
-                java.util.Map<String, Object> turnMap = new java.util.LinkedHashMap<>();
-                turnMap.put("role", role); 
-                turnMap.put("parts", java.util.List.of(java.util.Map.of("text", turn.getContent())));
-                contents.add(turnMap);
-            }
-        }
+                %s
 
-        // Bắt buộc history phải kết thúc bằng "model" trước khi thêm "user" mới. 
-        // Nếu kết thúc bằng "user", xoá nó đi để tránh lỗi 2 turn "user" liên tiếp (Error 400).
-        if (!contents.isEmpty() && "user".equals(contents.get(contents.size() - 1).get("role"))) {
-            contents.remove(contents.size() - 1);
-        }
+                === CÂU HỎI MỚI CỦA KHÁCH ===
+                %s
+                """,
+                SYSTEM_CONTEXT, contextSummary, systemPrompt, userMessage);
 
-        String currentText = (taskPrompt == null || taskPrompt.isBlank())
-                ? userMessage
-                : taskPrompt + "\n\n=== CÂU Hỏi CỦA KHÁCH HÀNG ===\n" + userMessage;
-
-        java.util.Map<String, Object> currentTurn = new java.util.LinkedHashMap<>();
-        currentTurn.put("role", "user");
-        currentTurn.put("parts", java.util.List.of(java.util.Map.of("text", currentText)));
-        contents.add(currentTurn);
-
-        return contents;
-    }
-
-    /**
-     * Gọi Gemini API với multi-turn conversation format đúng chuẩn.
-     * Dùng systemInstruction riêng biệt (Gemini 1.5+) thay vì nhồi vào prompt text.
-     */
-    private String callGeminiMultiTurn(
-            java.util.List<java.util.Map<String, Object>> contents, int maxTokens) {
-
-        String url = String.format("%s/%s:generateContent?key=%s", apiBaseUrl, chatModel, apiKey);
-
-        String requestBody;
-        try {
-            java.util.Map<String, Object> bodyMap = new java.util.LinkedHashMap<>();
-            // systemInstruction: Gemini 1.5 xử lý tốt hơn so với nhồi vào prompt
-            bodyMap.put("systemInstruction", java.util.Map.of(
-                    "parts", java.util.List.of(java.util.Map.of("text", SYSTEM_CONTEXT))));
-            bodyMap.put("contents", contents);
-            bodyMap.put("generationConfig", new java.util.HashMap<>() {
-                {
-                    put("temperature", 0.7);
-                    put("maxOutputTokens", maxTokens);
-                    put("topP", 0.8);
-                }
-            });
-            bodyMap.put("safetySettings", java.util.List.of(
-                    java.util.Map.of("category", "HARM_CATEGORY_HARASSMENT", "threshold", "BLOCK_ONLY_HIGH"),
-                    java.util.Map.of("category", "HARM_CATEGORY_HATE_SPEECH", "threshold", "BLOCK_ONLY_HIGH")));
-            requestBody = objectMapper.writeValueAsString(bodyMap);
-        } catch (Exception e) {
-            log.error("Failed to serialize Gemini multi-turn request body", e);
-            return getFallbackResponse();
-        }
-
-        Request request = new Request.Builder()
-                .url(url)
-                .post(RequestBody.create(requestBody, MediaType.get("application/json; charset=utf-8")))
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                String errorBody = response.body() != null ? response.body().string() : "no body";
-                log.error("Gemini multi-turn API error: HTTP {} — {}", response.code(), errorBody);
-                if (response.code() == 429) {
-                    return "Ỉ ơi, hệ thống đang bận xử lý nhiều yêu cầu. Bạn đợi tôi một chút rồi thử lại nhé! ⏳";
-                }
-                return getFallbackResponse();
-            }
-            return parseGeminiResponse(response.body().string());
-        } catch (IOException e) {
-            log.error("Failed to call Gemini multi-turn API: {}", e.getMessage());
-            return getFallbackResponse();
-        }
+        return callGeminiAPI(prompt, 1024, false);
     }
 
     private String getFallbackResponse() {

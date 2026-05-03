@@ -25,6 +25,12 @@ public class ChatMessage {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String response;
 
+    @Column(name = "response_data", columnDefinition = "TEXT")
+    private String responseData;
+
+    @Column(name = "quick_replies", columnDefinition = "TEXT")
+    private String quickReplies;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private MessageType messageType;

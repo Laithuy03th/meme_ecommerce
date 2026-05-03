@@ -81,14 +81,12 @@ public class ProductSpecifications {
                 for (String token : tokens) {
                     String kw = "%" + token + "%";
 
+                    // Chỉ match tên, brand, sku — KHÔNG match shortDesc/longDesc
+                    // để tránh sản phẩm không liên quan lọt vào kết quả
+                    // (ví dụ: áo thun có mô tả chứa "váy" sẽ không bị match sai)
                     Predicate byName = cb.like(cb.lower(cb.coalesce(root.get("name"), "")), kw);
                     Predicate byBrand = cb.like(cb.lower(cb.coalesce(root.get("brand"), "")), kw);
-                    Predicate byShortDesc = cb.like(cb.lower(cb.coalesce(root.get("shortDesc"), "")), kw);
-                    Predicate byLongDesc = cb.like(cb.lower(cb.coalesce(root.get("longDesc"), "")), kw);
                     Predicate byProductSku = cb.like(cb.lower(cb.coalesce(root.get("sku"), "")), kw);
-
-                    Predicate byCatName = cb.like(cb.lower(cb.coalesce(categoryJoin.get("name"), "")), kw);
-                    Predicate byCatSlug = cb.like(cb.lower(cb.coalesce(categoryJoin.get("slug"), "")), kw);
 
                     Predicate byVarColor = cb.like(cb.lower(cb.coalesce(variantJoin.get("color"), "")), kw);
                     Predicate byVarSize = cb.like(cb.lower(cb.coalesce(variantJoin.get("size"), "")), kw);
@@ -97,11 +95,7 @@ public class ProductSpecifications {
                     perTokenPredicates.add(cb.or(
                             byName,
                             byBrand,
-                            byShortDesc,
-                            byLongDesc,
                             byProductSku,
-                            byCatName,
-                            byCatSlug,
                             byVarColor,
                             byVarSize,
                             byVarSku));

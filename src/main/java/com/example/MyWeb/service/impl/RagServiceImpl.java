@@ -19,8 +19,10 @@ public class RagServiceImpl implements RagService {
     private final FaqDocumentRepository documentRepository;
 
     // Ngưỡng cosine distance: 0 = giống hệt, 2 = hoàn toàn khác.
-    // 0.65 nghĩa là chỉ lấy document đủ liên quan, tránh inject context sai.
-    private static final double SIMILARITY_THRESHOLD = 0.65;
+    // 0.85 nghĩa là chỉ lấy document đủ liên quan, tránh inject context sai. Nới lỏng để dễ fetch hơn.
+    private static final double SIMILARITY_THRESHOLD = 0.85;
+    // Dimension của gemini-embedding-001
+    private static final int EXPECTED_EMBEDDING_DIM = 3072;
 
     @Override
     public List<FaqDocument> retrieveRelevantContext(String query, int topK) {
@@ -29,9 +31,15 @@ public class RagServiceImpl implements RagService {
         // 1. Tạo vector cho câu hỏi (Dùng Gemini LLM)
         float[] queryVector = llmService.embed(query);
         
-        // Đảm bảo vector không bị rỗng (do lỗi API)
-        if (queryVector == null || queryVector.length == 0 || queryVector[0] == 0f) {
-            log.warn("RAG: Query embedding failed. Returning empty context.");
+        // Kiểm tra embedding hợp lệ và đúng dimension
+        if (queryVector == null || queryVector.length == 0) {
+            log.warn("RAG: Query embedding failed (null/empty). Returning empty context.");
+            return List.of();
+        }
+        if (queryVector.length != EXPECTED_EMBEDDING_DIM) {
+            log.error("RAG: Embedding dimension mismatch! Got {} but expected {}. " +
+                      "Check gemini embedding model or ALTER TABLE faq_documents ALTER COLUMN embedding TYPE vector({});",
+                      queryVector.length, EXPECTED_EMBEDDING_DIM, queryVector.length);
             return List.of();
         }
 
@@ -39,21 +47,29 @@ public class RagServiceImpl implements RagService {
         String vectorString = formatVectorForQuery(queryVector);
 
         // 3. Search DB với threshold để lọc kết quả không liên quan
-        log.info("RAG: Retrieving top {} documents with distance < {}", topK, SIMILARITY_THRESHOLD);
+        log.info("RAG: Searching top {} docs (dim={}) with cosine distance < {}",
+                topK, queryVector.length, SIMILARITY_THRESHOLD);
         try {
             List<FaqDocument> results = documentRepository.findTopSimilarDocuments(
                     vectorString, topK, SIMILARITY_THRESHOLD);
             
             if (results.isEmpty()) {
-                log.info("RAG: No documents within threshold {}. Bot will use fallback.", SIMILARITY_THRESHOLD);
+                log.warn("RAG: No documents within threshold {}. Trying without threshold...", SIMILARITY_THRESHOLD);
+                // Fallback: lấy top K không cần threshold để xem khoảng cách thực tế
+                List<FaqDocument> all = documentRepository.findTopSimilarDocuments(vectorString, topK, 2.0);
+                if (!all.isEmpty()) {
+                    log.warn("RAG: Best match without threshold: '{}' (distance quá xa). " +
+                             "Xem xét tăng SIMILARITY_THRESHOLD.", all.get(0).getTitle());
+                }
             } else {
-                log.info("RAG: Found {} relevant document(s): {}",
+                log.info("RAG: Found {} relevant doc(s): {}",
                         results.size(),
                         results.stream().map(FaqDocument::getTitle).toList());
             }
             return results;
         } catch (Exception e) {
-            log.error("RAG pgvector search failed. Did you run 'CREATE EXTENSION vector;' in DB?", e);
+            log.error("RAG pgvector search failed: {}. Check: 1) CREATE EXTENSION vector; 2) Dimension mismatch.",
+                    e.getMessage());
             return List.of();
         }
     }

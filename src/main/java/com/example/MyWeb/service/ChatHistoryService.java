@@ -4,6 +4,7 @@ import com.example.MyWeb.dto.ChatRequest;
 import com.example.MyWeb.dto.ChatResponse;
 import com.example.MyWeb.model.ChatMessage;
 import com.example.MyWeb.repository.ChatMessageRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ChatHistoryService {
 
     private final ChatMessageRepository chatMessageRepository;
+    private final ObjectMapper objectMapper;
 
     /**
      * Lưu cặp user-message + bot-response vào DB trong một transaction độc lập.
@@ -42,11 +44,23 @@ public class ChatHistoryService {
                     .userId(request.getUserId())
                     .build());
 
+            // Serialize payload
+            String responseDataJson = null;
+            if (response.getData() != null) {
+                responseDataJson = objectMapper.writeValueAsString(response.getData());
+            }
+            String quickRepliesJson = null;
+            if (response.getQuickReplies() != null) {
+                quickRepliesJson = objectMapper.writeValueAsString(response.getQuickReplies());
+            }
+
             // Lưu phản hồi bot — KHÔNG lưu lại message của user vào bot record
             chatMessageRepository.save(ChatMessage.builder()
                     .sessionId(request.getSessionId())
                     .message("")    // bot turn: message rỗng (fix data model dư thừa)
                     .response(response.getResponse() != null ? response.getResponse() : "")
+                    .responseData(responseDataJson)
+                    .quickReplies(quickRepliesJson)
                     .messageType(ChatMessage.MessageType.BOT)
                     .intent(response.getIntent())
                     .userId(request.getUserId())
