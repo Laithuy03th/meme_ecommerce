@@ -46,6 +46,7 @@ public class OrderServiceImpl implements OrderService {
         private final com.example.MyWeb.repository.OrderStatusHistoryRepository orderStatusHistoryRepository;
         private final com.example.MyWeb.service.EmailService emailService;
         private final ReviewRepository reviewRepository;
+        private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
         private OrderItemResponse toItemDto(OrderItem item) {
                 Product p = item.getProduct();
@@ -339,6 +340,8 @@ public class OrderServiceImpl implements OrderService {
                 log.info("Order created successfully: orderId={}, userId={}, totalAmount={}",
                                 savedOrder.getId(), userId, totalAmount);
 
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, savedOrder, null, OrderStatus.PENDING));
+
                 orderStatusHistoryRepository.save(OrderStatusHistory.systemChange(savedOrder, OrderStatus.PENDING, OrderStatus.PENDING, "Order placed"));
                 emailService.sendOrderConfirmation(user.getEmail(), savedOrder.getId(), totalAmount);
 
@@ -500,6 +503,7 @@ public class OrderServiceImpl implements OrderService {
                 orderRepository.save(order);
 
                 orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus, OrderStatus.CANCELED, "CUSTOMER", "User canceled order"));
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, oldStatus, OrderStatus.CANCELED));
                 emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, "CANCELED");
 
                 log.info("Order cancelled and stock returned: orderId={}, userId={}", orderId, userId);
@@ -762,10 +766,27 @@ public class OrderServiceImpl implements OrderService {
                         }
                 }
 
+                // ================================================================
+                // Cập nhật PaymentStatus tự động theo chuẩn e-commerce (Shopee)
+                // ================================================================
+                // 1. Nếu giao hàng thành công (DELIVERED) và là đơn COD -> Đánh dấu đã thanh toán
+                if (targetStatus == OrderStatus.DELIVERED && order.getPaymentMethod() == PaymentMethod.COD) {
+                        order.setPaymentStatus(PaymentStatus.PAID);
+                        log.info("Order {} delivered via COD. PaymentStatus automatically updated to PAID.", orderId);
+                }
+
+                // 2. Nếu đơn bị Hủy (CANCELED) nhưng khách ĐÃ THANH TOÁN (VNPAY) -> Đổi sang REFUNDED để kế toán biết đường hoàn tiền
+                if (targetStatus == OrderStatus.CANCELED && order.getPaymentStatus() == PaymentStatus.PAID) {
+                        order.setPaymentStatus(PaymentStatus.REFUNDED);
+                        log.info("Paid order {} was canceled. PaymentStatus automatically updated to REFUNDED.", orderId);
+                }
+
                 order.setStatus(targetStatus);
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
                 
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, currentStatus, targetStatus));
+
                 orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, currentStatus, targetStatus, "ADMIN", "Status updated"));
                 emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, targetStatus.name());
                 log.info("Order status updated: orderId={}, {} -> {}", orderId, currentStatus, targetStatus);
@@ -833,6 +854,7 @@ public class OrderServiceImpl implements OrderService {
                 orderRepository.save(order);
 
                 orderStatusHistoryRepository.save(OrderStatusHistory.systemChange(order, oldStatus, OrderStatus.CANCELED, reason));
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, oldStatus, OrderStatus.CANCELED));
                 
                 log.info("System cancelled order: orderId={}, reason={}", orderId, reason);
                 try {

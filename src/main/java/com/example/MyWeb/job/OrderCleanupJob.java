@@ -33,10 +33,10 @@ public class OrderCleanupJob {
         // Hủy nếu đơn hàng được tạo quá 24h
         LocalDateTime timeLimit = LocalDateTime.now().minusHours(24);
 
-        List<Order> unpaidOrders = orderRepository.findByStatusAndPaymentMethodAndPaymentStatusAndCreatedAtBefore(
+        List<Order> unpaidOrders = orderRepository.findByStatusAndPaymentMethodAndPaymentStatusNotAndCreatedAtBefore(
                 OrderStatus.PENDING,
                 PaymentMethod.VNPAY,
-                PaymentStatus.UNPAID,
+                PaymentStatus.PAID,
                 timeLimit
         );
 

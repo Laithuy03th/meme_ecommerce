@@ -16,6 +16,7 @@ import com.example.MyWeb.service.PaymentService;
 import com.example.MyWeb.util.VNPayUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +34,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final OrderRepository orderRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final VNPayConfig vnPayConfig;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -252,6 +254,7 @@ public class PaymentServiceImpl implements PaymentService {
         if (newPaymentStatus == PaymentStatus.PAID) {
             if (order.getStatus() == OrderStatus.PENDING) {
                 order.setStatus(OrderStatus.CONFIRMED);
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, OrderStatus.PENDING, OrderStatus.CONFIRMED));
             }
             log.info("Payment successful for order: {}", orderId);
         } else {

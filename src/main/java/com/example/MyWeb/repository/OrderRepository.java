@@ -57,4 +57,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
                         com.example.MyWeb.model.enums.PaymentMethod paymentMethod,
                         com.example.MyWeb.model.enums.PaymentStatus paymentStatus,
                         java.time.LocalDateTime timeLimit);
+
+        java.util.List<Order> findByStatusAndPaymentMethodAndPaymentStatusNotAndCreatedAtBefore(
+                        com.example.MyWeb.model.enums.OrderStatus status,
+                        com.example.MyWeb.model.enums.PaymentMethod paymentMethod,
+                        com.example.MyWeb.model.enums.PaymentStatus paymentStatus,
+                        java.time.LocalDateTime timeLimit);
 }
