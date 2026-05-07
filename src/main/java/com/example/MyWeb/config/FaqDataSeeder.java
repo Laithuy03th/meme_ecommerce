@@ -20,6 +20,8 @@ public class FaqDataSeeder {
     private final JdbcTemplate jdbcTemplate;  // Dùng JdbcTemplate thay @Modifying để tránh transaction proxy issue
 
     private static final long EXPECTED_COUNT = 6L;
+    // model API thực tế trả 3072 dims — phải khớp với cột vector(3072) trong DB
+    private static final int EXPECTED_EMBEDDING_DIM = 3072;
 
     @Bean
     public CommandLineRunner initFaqData(FaqDocumentRepository faqRepository) {
@@ -164,6 +166,12 @@ public class FaqDataSeeder {
 
     private boolean isValidEmbedding(float[] embedding) {
         if (embedding == null || embedding.length == 0) return false;
+        // Kiểm tra đúng dimension trước khi insert vào vector(3072)
+        if (embedding.length != EXPECTED_EMBEDDING_DIM) {
+            log.error("RAG FAQ: Embedding dimension mismatch! Got {} but expected {}. " +
+                      "Check gemini embedding model config.", embedding.length, EXPECTED_EMBEDDING_DIM);
+            return false;
+        }
         double norm = 0.0;
         for (float v : embedding) norm += v * v;
         return norm > 1e-6;

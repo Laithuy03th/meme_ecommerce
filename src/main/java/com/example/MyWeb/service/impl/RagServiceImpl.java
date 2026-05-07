@@ -18,10 +18,10 @@ public class RagServiceImpl implements RagService {
     private final LlmService llmService;
     private final FaqDocumentRepository documentRepository;
 
-    // Ngưỡng cosine distance: 0 = giống hệt, 2 = hoàn toàn khác.
-    // 0.85 nghĩa là chỉ lấy document đủ liên quan, tránh inject context sai. Nới lỏng để dễ fetch hơn.
-    private static final double SIMILARITY_THRESHOLD = 0.85;
-    // Dimension của gemini-embedding-001
+    // Ngưỡng cosine distance: 0 = giống hệt, 2 = hoàn toàn khác nhau.
+    // 1.2 đủ rộng cho tiếng Việt — câu hỏi thực tế thường có distance 0.2–0.6 với tài liệu liên quan.
+    private static final double SIMILARITY_THRESHOLD = 1.2;
+    // Dimension thực tế của api trả về = 3072
     private static final int EXPECTED_EMBEDDING_DIM = 3072;
 
     @Override

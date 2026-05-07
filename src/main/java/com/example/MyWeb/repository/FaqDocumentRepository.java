@@ -15,7 +15,7 @@ public interface FaqDocumentRepository extends JpaRepository<FaqDocument, Long> 
      * Toán tử <=> tính khoảng cách cosine (gần 0 = giống nhau, gần 2 = hoàn toàn khác nhau).
      * Cần: CREATE EXTENSION IF NOT EXISTS vector; trong PostgreSQL.
      */
-    @Query(value = "SELECT * FROM faq_documents " +
+    @Query(value = "SELECT id, category, content, created_at, CAST(NULL AS vector) as embedding, title FROM faq_documents " +
                    "WHERE (embedding <=> cast(:queryVector as vector)) < :threshold " +
                    "ORDER BY embedding <=> cast(:queryVector as vector) " +
                    "LIMIT :topK", nativeQuery = true)

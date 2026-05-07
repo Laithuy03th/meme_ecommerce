@@ -750,6 +750,15 @@ public class OrderServiceImpl implements OrderService {
                 }
 
                 // ================================================================
+                // Prevent confirming UNPAID online payment orders
+                // ================================================================
+                if (targetStatus == OrderStatus.CONFIRMED && 
+                    order.getPaymentMethod() != PaymentMethod.COD && 
+                    order.getPaymentStatus() != PaymentStatus.PAID) {
+                        throw new RuntimeException("Cannot confirm an online payment order that has not been paid yet.");
+                }
+
+                // ================================================================
                 // Hoàn stock khi chuyển sang CANCELED hoặc RETURNED
                 // ================================================================
                 if (targetStatus == OrderStatus.CANCELED || targetStatus == OrderStatus.RETURNED) {
@@ -830,8 +839,8 @@ public class OrderServiceImpl implements OrderService {
                 Order order = orderRepository.findById(orderId)
                                 .orElseThrow(() -> new RuntimeException("Order not found with id: " + orderId));
 
-                if (order.getStatus() != OrderStatus.PENDING) {
-                        return; // Only cancel PENDING
+                if (order.getStatus() != OrderStatus.PENDING && order.getStatus() != OrderStatus.CONFIRMED) {
+                        return; // Only cancel PENDING or CONFIRMED
                 }
 
                 OrderStatus oldStatus = order.getStatus();

@@ -31,6 +31,7 @@ public class FaqDocument {
 
     // Dành cho Hibernate 6.4+ (Vector Search)
     // Yêu cầu: CREATE EXTENSION IF NOT EXISTS vector; trong PostgreSQL
+    // Thực tế model API trả về 3072 dimensions
     @Column(columnDefinition = "vector(3072)")
     @JdbcTypeCode(SqlTypes.VECTOR)
     private float[] embedding;
