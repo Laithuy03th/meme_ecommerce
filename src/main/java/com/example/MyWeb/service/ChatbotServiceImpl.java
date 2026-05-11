@@ -489,13 +489,25 @@ public class ChatbotServiceImpl implements ChatbotService {
         }
 
         NumberFormat vndFormat = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("vi-VN"));
-        StringBuilder msg = new StringBuilder("📦 **Đơn hàng gần đây của bạn:**\n\n");
+        StringBuilder ordersInfo = new StringBuilder();
         for (Order o : page.getContent()) {
-            msg.append(String.format("• Đơn #%d — %s — %s\n",
+            ordersInfo.append(String.format("• Đơn #%d — %s — %s\n",
                     o.getId(), getStatusEmoji(o.getStatus().name()) + " " + o.getStatus(),
                     vndFormat.format(o.getTotalAmount())));
         }
-        msg.append("\n💡 Hỏi tôi về 'đơn 123' để xem chi tiết bất kỳ đơn nào!");
+
+        String systemPrompt = String.format("""
+                === DANH SÁCH ĐƠN HÀNG GẦN ĐÂY ===
+                %s
+                
+                === NHIỆM VỤ ===
+                Bạn là trợ lý AI của MemeShop. Hãy thông báo danh sách đơn hàng này cho khách hàng một cách tự nhiên, thân thiện.
+                Có thể tóm tắt nhanh tình trạng các đơn (ví dụ: 'Bạn có 1 đơn đang giao và 1 đơn đã hoàn thành').
+                Kết thúc bằng lời nhắc: Khách có thể nhập mã đơn (ví dụ: 'đơn %d') để xem chi tiết nhé.
+                Không bịa thêm thông tin ngoài danh sách trên.
+                """, ordersInfo.toString(), page.getContent().get(0).getId());
+
+        String response = llmService.generateResponse(systemPrompt, "xem đơn hàng của tôi", List.of());
 
         List<Map<String, Object>> ordersData = page.getContent().stream().map(o -> {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -510,7 +522,7 @@ public class ChatbotServiceImpl implements ChatbotService {
                 o -> QuickReply.builder().label("Xem đơn #" + o.getId()).value("đơn " + o.getId()).icon("📦").build())
                 .collect(Collectors.toList());
 
-        return builder.response(msg.toString())
+        return builder.response(response)
                 .data(Map.of("orders", ordersData))
                 .quickReplies(replies)
                 .build();
@@ -549,13 +561,37 @@ public class ChatbotServiceImpl implements ChatbotService {
                 case DELIVERED -> "Đã giao hàng";
                 case CANCELED -> "Đã hủy";
                 case RETURN_REQUESTED -> "Yêu cầu trả hàng";
+                case RETURNED -> "Đã trả hàng";
+                case REFUNDED -> "Đã hoàn tiền";
                 default -> order.getStatus().toString();
             };
             String formattedPrice = new java.text.DecimalFormat("#,###").format(order.getTotalAmount()) + " đ";
-            String response = "Đơn hàng **#" + order.getId() + "** của bạn đang ở trạng thái **" + formattedStatus + "**.\n\n" +
-                "- Tổng tiền: **" + formattedPrice + "**\n" +
-                "- Ngày cập nhật: " + order.getUpdatedAt() + "\n\n" +
-                "Bạn có thể xem chi tiết đơn hàng bằng cách nhấn nút bên dưới.";
+            
+            String itemsText = order.getItems().stream()
+                    .map(item -> item.getQuantity() + "x " + item.getProductName())
+                    .collect(Collectors.joining(", "));
+                    
+            String noteText = order.getNote() != null && !order.getNote().trim().isEmpty() 
+                    ? order.getNote() : "Không có";
+            
+            String systemPrompt = String.format("""
+                    === THÔNG TIN ĐƠN HÀNG ===
+                    Mã đơn: #%d
+                    Trạng thái: %s
+                    Thanh toán: %s
+                    Tổng tiền: %s
+                    Sản phẩm: %s
+                    Ghi chú/Lý do: %s
+                    Ngày cập nhật: %s
+                    
+                    === NHIỆM VỤ ===
+                    Bạn là trợ lý AI của MemeShop. Hãy thông báo tình trạng đơn hàng này cho khách hàng một cách tự nhiên, thân thiện và chuyên nghiệp.
+                    Chỉ dựa vào thông tin được cung cấp ở trên. KHÔNG tự bịa thêm sản phẩm hay thông tin khác.
+                    Giữ câu trả lời ngắn gọn (2-3 câu) và luôn thân thiện. Hãy nhắc đến sản phẩm trong đơn để khách nhớ.
+                    Nếu có ghi chú (đặc biệt là lý do hủy/trả hàng), hãy khéo léo thông báo cho khách.
+                    """, order.getId(), formattedStatus, order.getPaymentStatus(), formattedPrice, itemsText, noteText, order.getUpdatedAt());
+
+            String response = llmService.generateResponse(systemPrompt, userMessage, history);
 
             Map<String, Object> orderData = new LinkedHashMap<>();
             orderData.put("id", order.getId());
@@ -647,7 +683,7 @@ public class ChatbotServiceImpl implements ChatbotService {
      * Trích xuất order ID từ message: "đơn 123", "#456", "order 789"
      */
     private String extractOrderId(String message) {
-        java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?:đơn|order|#)\\s*(\\d+)");
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?:đơn|order|mã|#)\\s*(\\d+)");
         java.util.regex.Matcher m = p.matcher(message.toLowerCase());
         return m.find() ? m.group(1) : null;
     }
@@ -1066,7 +1102,7 @@ public class ChatbotServiceImpl implements ChatbotService {
         String msg = safeLower(message);
 
         // 1. Order
-        if (containsAny(msg,
+        if (extractOrderId(msg) != null || containsAny(msg,
                 "đơn hàng", "đơn ", "order", "mã đơn", "trạng thái đơn",
                 "kiểm tra đơn", "theo dõi đơn", "đơn của tôi")) {
             return "order";

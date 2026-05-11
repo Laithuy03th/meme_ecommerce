@@ -377,8 +377,21 @@ public class OrderServiceImpl implements OrderService {
 
         private com.example.MyWeb.dto.order.OrderListResponse toListResponse(Order order) {
                 String firstImage = null;
+                int itemCount = 0;
+
                 if (order.getItems() != null && !order.getItems().isEmpty()) {
-                        firstImage = order.getItems().get(0).getProduct().getThumbnailUrl();
+                        itemCount = order.getItems().size();
+                        // Safe: kiểm tra null khi product có thể đã bị xóa
+                        for (OrderItem item : order.getItems()) {
+                                try {
+                                        if (item.getProduct() != null && item.getProduct().getThumbnailUrl() != null) {
+                                                firstImage = item.getProduct().getThumbnailUrl();
+                                                break;
+                                        }
+                                } catch (Exception e) {
+                                        log.warn("Could not load product thumbnail for order {}: {}", order.getId(), e.getMessage());
+                                }
+                        }
                 }
 
                 return com.example.MyWeb.dto.order.OrderListResponse.builder()
@@ -386,7 +399,7 @@ public class OrderServiceImpl implements OrderService {
                                 .orderNumber("ORD-" + order.getId())
                                 .createdAt(order.getCreatedAt())
                                 .status(order.getStatus().name())
-                                .itemCount(order.getItems() != null ? order.getItems().size() : 0)
+                                .itemCount(itemCount)
                                 .totalAmount(order.getTotalAmount())
                                 .firstItemImageUrl(firstImage)
                                 .build();
@@ -522,13 +535,25 @@ public class OrderServiceImpl implements OrderService {
                         throw new RuntimeException("Cannot request return for order with status: " + order.getStatus());
                 }
 
-                // Shopee Policy: Max 10 days for return after delivery
-                orderStatusHistoryRepository.findFirstByOrder_IdAndToStatusOrderByCreatedAtDesc(orderId, OrderStatus.DELIVERED)
-                                .ifPresent(h -> {
-                                        if (h.getCreatedAt().plusDays(10).isBefore(LocalDateTime.now())) {
-                                                throw new RuntimeException("The 10-day return window for this order has expired.");
-                                        }
-                                });
+                // Chinh sach: Toi da 7 ngay sau giao hang thi khong duoc tra hang
+                // Lay thoi diem giao hang tu order_status_history
+                java.util.Optional<OrderStatusHistory> deliveredHistory =
+                        orderStatusHistoryRepository.findFirstByOrder_IdAndToStatusOrderByCreatedAtDesc(
+                                orderId, OrderStatus.DELIVERED);
+
+                // Fail-safe: neu khong tim thay record DELIVERED -> khong cho phep tra hang
+                // (tranh truong hop don cu khong co history bi bypass validation)
+                if (deliveredHistory.isEmpty()) {
+                        log.warn("Cannot find DELIVERED history for orderId={}. Blocking return request as safety measure.", orderId);
+                        throw new RuntimeException("Không thể xác nhận thời điểm giao hàng. Vui lòng liên hệ hỗ trợ để yêu cầu trả hàng.");
+                }
+
+                LocalDateTime deliveredAt = deliveredHistory.get().getCreatedAt();
+                long daysSinceDelivered = java.time.temporal.ChronoUnit.DAYS.between(deliveredAt, LocalDateTime.now());
+                if (daysSinceDelivered > 7) {
+                        throw new RuntimeException(
+                                "Đã quá 7 ngày kể từ ngày giao hàng (" + daysSinceDelivered + " ngày). Chính sách trả hàng chỉ áp dụng trong 7 ngày.");
+                }
 
                 OrderStatus oldStatus = order.getStatus();
                 order.setStatus(OrderStatus.RETURN_REQUESTED);

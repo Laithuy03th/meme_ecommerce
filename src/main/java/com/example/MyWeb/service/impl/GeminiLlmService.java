@@ -94,8 +94,6 @@ public class GeminiLlmService implements LlmService {
         return "other";
     }
 
-
-
     @Override
     public String extractProductConstraints(String userMessage, List<ChatTurn> history) {
         String contextSummary = buildContextSummary(history);
@@ -266,29 +264,58 @@ public class GeminiLlmService implements LlmService {
             return getFallbackResponse();
         }
 
-        Request request = new Request.Builder()
-                .url(url)
-                .post(RequestBody.create(requestBody, MediaType.get("application/json; charset=utf-8")))
-                .addHeader("Content-Type", "application/json")
-                .build();
-
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                String errorBody = response.body() != null ? response.body().string() : "no body";
-                log.error("Gemini API error: HTTP {} — {}", response.code(), errorBody);
+        // Retry with exponential backoff on 429 (rate limit) - auto retry up to 2 times
+        int[] retryDelaysMs = { 2000, 5000 };
+        for (int attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
+            Request currentRequest = new Request.Builder()
+                    .url(url)
+                    .post(RequestBody.create(requestBody, MediaType.get("application/json; charset=utf-8")))
+                    .addHeader("Content-Type", "application/json")
+                    .build();
+            try (Response response = httpClient.newCall(currentRequest).execute()) {
                 if (response.code() == 429) {
-                    return "Hệ thống AI đang xử lý quá nhiều yêu cầu cùng lúc (Quá tải). Bạn vui lòng đợi khoảng 1 phút rồi thử lại nhé! ⏳";
+                    if (attempt < retryDelaysMs.length) {
+                        log.warn("[Gemini] Rate limit 429, retry in {}ms (attempt {}/{})",
+                                retryDelaysMs[attempt], attempt + 1, retryDelaysMs.length);
+                        try {
+                            Thread.sleep(retryDelaysMs[attempt]);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                        continue;
+                    }
+                    log.error("[Gemini] Rate limit 429 persists after {} retries. API key may have exhausted quota.",
+                            retryDelaysMs.length);
+                    return "Quá nhiều yêu cầu tới hệ thống. Vui lòng thử lại sau vài giây nhé!";
                 }
+                if (!response.isSuccessful()) {
+                    String errorBody = response.body() != null ? response.body().string() : "no body";
+                    log.error("Gemini API error: HTTP {} | Model: {} | Body: {}", response.code(), chatModel,
+                            errorBody);
+                    if (response.code() == 404) {
+                        log.error("Gemini model '{}' not found. Check gemini.model.chat in application.properties",
+                                chatModel);
+                    }
+                    return getFallbackResponse();
+                }
+                String responseBody = response.body().string();
+                return parseGeminiResponse(responseBody);
+            } catch (IOException e) {
+                if (attempt < retryDelaysMs.length) {
+                    log.warn("[Gemini] IOException on attempt {}, retry in {}ms: {}", attempt + 1,
+                            retryDelaysMs[attempt], e.getMessage());
+                    try {
+                        Thread.sleep(retryDelaysMs[attempt]);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                    continue;
+                }
+                log.error("Failed to call Gemini API (model={}): {}", chatModel, e.getMessage());
                 return getFallbackResponse();
             }
-
-            String responseBody = response.body().string();
-            return parseGeminiResponse(responseBody);
-
-        } catch (IOException e) {
-            log.error("Failed to call Gemini API: {}", e.getMessage());
-            return getFallbackResponse();
         }
+        return getFallbackResponse();
     }
 
     /**
@@ -382,7 +409,8 @@ public class GeminiLlmService implements LlmService {
                 """,
                 SYSTEM_CONTEXT, contextSummary, systemPrompt, userMessage);
 
-        return callGeminiAPI(prompt, 1024, false);
+        // Dùng 2048 tokens để đủ cho câu trả lời tư vấn sản phẩm/đơn hàng chi tiết
+        return callGeminiAPI(prompt, 2048, false);
     }
 
     private String getFallbackResponse() {
