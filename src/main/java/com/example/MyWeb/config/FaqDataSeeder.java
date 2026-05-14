@@ -49,7 +49,6 @@ public class FaqDataSeeder {
                         "MemeShop hỗ trợ các hình thức thanh toán: " +
                         "1) Thanh toán khi nhận hàng (COD), áp dụng cho đơn hàng trong nội địa Việt Nam. " +
                         "2) Thanh toán qua VNPay, hỗ trợ thẻ ATM nội địa, thẻ Visa/Mastercard/JCB và QR Code. " +
-                        "3) Thanh toán qua MoMo nếu phương thức này được hiển thị tại bước thanh toán. " +
                         "Khách hàng chọn phương thức thanh toán ở bước checkout trước khi xác nhận đơn hàng."
                     },
                     new String[]{
@@ -57,7 +56,7 @@ public class FaqDataSeeder {
                         "payment",
                         "Quy trình thanh toán tại MemeShop gồm: chọn sản phẩm, thêm vào giỏ hàng, " +
                         "kiểm tra thông tin nhận hàng, chọn phương thức thanh toán, xác nhận đơn hàng và hoàn tất thanh toán. " +
-                        "Nếu chọn VNPay hoặc MoMo, hệ thống sẽ chuyển khách hàng sang cổng thanh toán tương ứng. " +
+                        "Nếu chọn VNPay, hệ thống sẽ chuyển khách hàng sang cổng thanh toán tương ứng. " +
                         "Nếu bị trừ tiền nhưng đơn hàng chưa được tạo hoặc trạng thái chưa cập nhật, " +
                         "khách hàng nên chụp màn hình giao dịch và liên hệ support để được kiểm tra. " +
                         "Thời gian xử lý hoàn tiền phụ thuộc vào phương thức thanh toán."

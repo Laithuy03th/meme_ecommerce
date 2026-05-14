@@ -119,7 +119,8 @@ public class ChatbotServiceImpl implements ChatbotService {
         // 5. Update context with bot response
         contextService.addBotTurn(sessionId, response.getResponse(), intent);
 
-        // 6. Save to DB qua ChatHistoryService (transaction REQUIRES_NEW hoạt động đúng)
+        // 6. Save to DB qua ChatHistoryService (transaction REQUIRES_NEW hoạt động
+        // đúng)
         chatHistoryService.saveChatMessage(request, response);
 
         return response;
@@ -128,33 +129,36 @@ public class ChatbotServiceImpl implements ChatbotService {
     @Override
     public List<ChatHistoryItemResponse> getChatHistory(String sessionId) {
         List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-        
+
         return messages.stream().map(msg -> {
             ChatHistoryItemResponse response = new ChatHistoryItemResponse();
             response.setRole(msg.getMessageType() == ChatMessage.MessageType.USER ? "user" : "bot");
-            response.setContent(msg.getMessageType() == ChatMessage.MessageType.USER ? msg.getMessage() : msg.getResponse());
+            response.setContent(
+                    msg.getMessageType() == ChatMessage.MessageType.USER ? msg.getMessage() : msg.getResponse());
             response.setIntent(msg.getIntent());
             response.setSessionId(msg.getSessionId());
             response.setCreatedAt(msg.getCreatedAt());
-            
+
             try {
                 if (msg.getResponseData() != null && !msg.getResponseData().isEmpty()) {
-                    Map<String, Object> data = objectMapper.readValue(msg.getResponseData(), new TypeReference<Map<String, Object>>() {});
+                    Map<String, Object> data = objectMapper.readValue(msg.getResponseData(),
+                            new TypeReference<Map<String, Object>>() {
+                            });
                     response.setData(data);
                 }
                 if (msg.getQuickReplies() != null && !msg.getQuickReplies().isEmpty()) {
-                    List<QuickReply> quickReplies = objectMapper.readValue(msg.getQuickReplies(), new TypeReference<List<QuickReply>>() {});
+                    List<QuickReply> quickReplies = objectMapper.readValue(msg.getQuickReplies(),
+                            new TypeReference<List<QuickReply>>() {
+                            });
                     response.setQuickReplies(quickReplies);
                 }
             } catch (Exception e) {
                 log.error("Failed to parse JSON payload for chat history", e);
             }
-            
+
             return response;
         }).toList();
     }
-
-
 
     @Override
     public List<String> getQuickStartSuggestions() {
@@ -208,7 +212,7 @@ public class ChatbotServiceImpl implements ChatbotService {
                 Hãy chào hỏi thân thiện và giới thiệu ngắn gọn những gì bạn có thể giúp:
                 - Tìm kiếm và tư vấn sản phẩm bằng ngôn ngữ tự nhiên
                 - Tra cứu đơn hàng theo mã hoặc tài khoản
-                - Giải đáp chính sách giao hàng, đổi trả, bảo hành
+                - Giải đáp chính sách thanh toán, giao hàng, đổi trả, bảo hành và voucher
 
                 Giữ câu trả lời ngắn gọn (tối đa 3-4 câu), dùng 1-2 emoji.
                 """;
@@ -295,14 +299,17 @@ public class ChatbotServiceImpl implements ChatbotService {
                         .response(nearestResponse)
                         .data(nearestPayload)
                         .quickReplies(List.of(
-                                QuickReply.builder().label("Xem tất cả kết quả").value("xem tất cả sản phẩm tương tự").build(),
-                                QuickReply.builder().label("Tìm loại khác").value("tôi muốn tìm loại sản phẩm khác").build()))
+                                QuickReply.builder().label("Xem tất cả kết quả").value("xem tất cả sản phẩm tương tự")
+                                        .build(),
+                                QuickReply.builder().label("Tìm loại khác").value("tôi muốn tìm loại sản phẩm khác")
+                                        .build()))
                         .build();
             }
 
             // Không có nearest cũng không có: hỏi lại ngắn gọn
             return builder
-                    .response("Mình chưa tìm thấy sản phẩm phù hợp trong dữ liệu hiện tại. Bạn muốn đổi ngân sách, màu sắc hoặc loại sản phẩm không ạ?")
+                    .response(
+                            "Mình chưa tìm thấy sản phẩm phù hợp trong dữ liệu hiện tại. Bạn muốn đổi ngân sách, màu sắc hoặc loại sản phẩm không ạ?")
                     .quickReplies(List.of(
                             QuickReply.builder().label("Tìm lại").value("tôi muốn tìm sản phẩm khác").build()))
                     .build();
@@ -410,8 +417,10 @@ public class ChatbotServiceImpl implements ChatbotService {
                     .response("Mình chưa tìm thấy tài liệu chính sách phù hợp trong kho FAQ hiện tại. " +
                             "Bạn có thể hỏi cụ thể hơn về: thanh toán, đổi trả, giao hàng, bảo hành hoặc voucher nhé 😊")
                     .quickReplies(Arrays.asList(
-                            QuickReply.builder().label("💳 Hình thức thanh toán").value("các hình thức thanh toán hiện có").build(),
-                            QuickReply.builder().label("🔄 Chính sách đổi trả").value("chính sách đổi trả hàng").build(),
+                            QuickReply.builder().label("💳 Hình thức thanh toán")
+                                    .value("các hình thức thanh toán hiện có").build(),
+                            QuickReply.builder().label("🔄 Chính sách đổi trả").value("chính sách đổi trả hàng")
+                                    .build(),
                             QuickReply.builder().label("🚚 Giao hàng").value("chính sách giao hàng").build(),
                             QuickReply.builder().label("🎁 Voucher").value("chính sách voucher").build()))
                     .build();
@@ -496,16 +505,18 @@ public class ChatbotServiceImpl implements ChatbotService {
                     vndFormat.format(o.getTotalAmount())));
         }
 
-        String systemPrompt = String.format("""
-                === DANH SÁCH ĐƠN HÀNG GẦN ĐÂY ===
-                %s
-                
-                === NHIỆM VỤ ===
-                Bạn là trợ lý AI của MemeShop. Hãy thông báo danh sách đơn hàng này cho khách hàng một cách tự nhiên, thân thiện.
-                Có thể tóm tắt nhanh tình trạng các đơn (ví dụ: 'Bạn có 1 đơn đang giao và 1 đơn đã hoàn thành').
-                Kết thúc bằng lời nhắc: Khách có thể nhập mã đơn (ví dụ: 'đơn %d') để xem chi tiết nhé.
-                Không bịa thêm thông tin ngoài danh sách trên.
-                """, ordersInfo.toString(), page.getContent().get(0).getId());
+        String systemPrompt = String.format(
+                """
+                        === DANH SÁCH ĐƠN HÀNG GẦN ĐÂY ===
+                        %s
+
+                        === NHIỆM VỤ ===
+                        Bạn là trợ lý AI của MemeShop. Hãy thông báo danh sách đơn hàng này cho khách hàng một cách tự nhiên, thân thiện.
+                        Có thể tóm tắt nhanh tình trạng các đơn (ví dụ: 'Bạn có 1 đơn đang giao và 1 đơn đã hoàn thành').
+                        Kết thúc bằng lời nhắc: Khách có thể nhập mã đơn (ví dụ: 'đơn %d') để xem chi tiết nhé.
+                        Không bịa thêm thông tin ngoài danh sách trên.
+                        """,
+                ordersInfo.toString(), page.getContent().get(0).getId());
 
         String response = llmService.generateResponse(systemPrompt, "xem đơn hàng của tôi", List.of());
 
@@ -566,30 +577,34 @@ public class ChatbotServiceImpl implements ChatbotService {
                 default -> order.getStatus().toString();
             };
             String formattedPrice = new java.text.DecimalFormat("#,###").format(order.getTotalAmount()) + " đ";
-            
+
             String itemsText = order.getItems().stream()
                     .map(item -> item.getQuantity() + "x " + item.getProductName())
                     .collect(Collectors.joining(", "));
-                    
-            String noteText = order.getNote() != null && !order.getNote().trim().isEmpty() 
-                    ? order.getNote() : "Không có";
-            
-            String systemPrompt = String.format("""
-                    === THÔNG TIN ĐƠN HÀNG ===
-                    Mã đơn: #%d
-                    Trạng thái: %s
-                    Thanh toán: %s
-                    Tổng tiền: %s
-                    Sản phẩm: %s
-                    Ghi chú/Lý do: %s
-                    Ngày cập nhật: %s
-                    
-                    === NHIỆM VỤ ===
-                    Bạn là trợ lý AI của MemeShop. Hãy thông báo tình trạng đơn hàng này cho khách hàng một cách tự nhiên, thân thiện và chuyên nghiệp.
-                    Chỉ dựa vào thông tin được cung cấp ở trên. KHÔNG tự bịa thêm sản phẩm hay thông tin khác.
-                    Giữ câu trả lời ngắn gọn (2-3 câu) và luôn thân thiện. Hãy nhắc đến sản phẩm trong đơn để khách nhớ.
-                    Nếu có ghi chú (đặc biệt là lý do hủy/trả hàng), hãy khéo léo thông báo cho khách.
-                    """, order.getId(), formattedStatus, order.getPaymentStatus(), formattedPrice, itemsText, noteText, order.getUpdatedAt());
+
+            String noteText = order.getNote() != null && !order.getNote().trim().isEmpty()
+                    ? order.getNote()
+                    : "Không có";
+
+            String systemPrompt = String.format(
+                    """
+                            === THÔNG TIN ĐƠN HÀNG ===
+                            Mã đơn: #%d
+                            Trạng thái: %s
+                            Thanh toán: %s
+                            Tổng tiền: %s
+                            Sản phẩm: %s
+                            Ghi chú/Lý do: %s
+                            Ngày cập nhật: %s
+
+                            === NHIỆM VỤ ===
+                            Bạn là trợ lý AI của MemeShop. Hãy thông báo tình trạng đơn hàng này cho khách hàng một cách tự nhiên, thân thiện và chuyên nghiệp.
+                            Chỉ dựa vào thông tin được cung cấp ở trên. KHÔNG tự bịa thêm sản phẩm hay thông tin khác.
+                            Giữ câu trả lời ngắn gọn (2-3 câu) và luôn thân thiện. Hãy nhắc đến sản phẩm trong đơn để khách nhớ.
+                            Nếu có ghi chú (đặc biệt là lý do hủy/trả hàng), hãy khéo léo thông báo cho khách.
+                            """,
+                    order.getId(), formattedStatus, order.getPaymentStatus(), formattedPrice, itemsText, noteText,
+                    order.getUpdatedAt());
 
             String response = llmService.generateResponse(systemPrompt, userMessage, history);
 
@@ -620,11 +635,13 @@ public class ChatbotServiceImpl implements ChatbotService {
         // Hardcoded — không gọi LLM để tránh hallucination về catalog
         return builder
                 .response("Mình chưa xác định rõ yêu cầu của bạn. " +
-                        "Hiện mình có thể hỗ trợ: tìm sản phẩm, tư vấn sản phẩm, tra cứu đơn hàng và giải đáp chính sách mua hàng/đổi trả/thanh toán. " +
+                        "Hiện mình có thể hỗ trợ: tìm sản phẩm, tư vấn sản phẩm, tra cứu đơn hàng và giải đáp chính sách mua hàng/đổi trả/thanh toán/mã giảm giá/bảo hành. "
+                        +
                         "Bạn muốn mình hỗ trợ theo hướng nào ạ? 😊")
                 .quickReplies(Arrays.asList(
                         QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build(),
-                        QuickReply.builder().label("💳 Chính sách thanh toán").value("các hình thức thanh toán hiện có").build(),
+                        QuickReply.builder().label("💳 Chính sách thanh toán").value("các hình thức thanh toán hiện có")
+                                .build(),
                         QuickReply.builder().label("🔄 Chính sách đổi trả").value("chính sách đổi trả hàng").build(),
                         QuickReply.builder().label("📦 Đơn hàng").value("xem đơn hàng của tôi").build()))
                 .build();
@@ -798,8 +815,10 @@ public class ChatbotServiceImpl implements ChatbotService {
         if (hasText(c.getKeyword())) {
             String kw = c.getKeyword().trim().toLowerCase(Locale.ROOT);
 
-            if (kw.contains("điện thoại") || kw.contains("smartphone") || kw.contains("phone") || kw.contains("mobile")) {
-                kw = kw.replace("điện thoại", "").replace("smartphone", "").replace("phone", "").replace("mobile", "").trim();
+            if (kw.contains("điện thoại") || kw.contains("smartphone") || kw.contains("phone")
+                    || kw.contains("mobile")) {
+                kw = kw.replace("điện thoại", "").replace("smartphone", "").replace("phone", "").replace("mobile", "")
+                        .trim();
                 if (!hasText(c.getCategorySlug()))
                     c.setCategorySlug("electronics");
             }
@@ -822,68 +841,96 @@ public class ChatbotServiceImpl implements ChatbotService {
             c.setKeyword(kw.isEmpty() ? null : kw);
         }
 
-        // Safety guard: phục hồi keyword cụ thể từ user message nếu bị null sau normalize.
+        // Safety guard: phục hồi keyword cụ thể từ user message nếu bị null sau
+        // normalize.
         // Quan trọng: tránh chỉ còn categorySlug → query trả toàn bộ category.
         // Thứ tự: từ cụ thể nhất → chung nhất để tránh nhầm lẫn.
         if (!hasText(c.getKeyword())) {
             // Fashion
             if (containsAny(userMessage, "hoodie", "áo hoodie")) {
-                c.setKeyword("hoodie"); c.setCategorySlug("fashion");
+                c.setKeyword("hoodie");
+                c.setCategorySlug("fashion");
             } else if (containsAny(userMessage, "sơ mi", "oxford")) {
-                c.setKeyword("sơ mi"); c.setCategorySlug("fashion");
+                c.setKeyword("sơ mi");
+                c.setCategorySlug("fashion");
             } else if (containsAny(userMessage, "áo thun", "cotton")) {
-                c.setKeyword("áo thun"); c.setCategorySlug("fashion");
+                c.setKeyword("áo thun");
+                c.setCategorySlug("fashion");
             } else if (containsAny(userMessage, "váy midi", "midi")) {
-                c.setKeyword("váy midi"); c.setCategorySlug("fashion");
+                c.setKeyword("váy midi");
+                c.setCategorySlug("fashion");
             } else if (containsAny(userMessage, "váy công sở")) {
-                c.setKeyword("váy công sở"); c.setCategorySlug("fashion");
+                c.setKeyword("váy công sở");
+                c.setCategorySlug("fashion");
             } else if (containsAny(userMessage, "váy", "đầm", "dress")) {
-                c.setKeyword("váy"); c.setCategorySlug("fashion");
+                c.setKeyword("váy");
+                c.setCategorySlug("fashion");
             } else if (containsAny(userMessage, "sneaker", "giày sneaker")) {
-                c.setKeyword("sneaker"); c.setCategorySlug("fashion");
+                c.setKeyword("sneaker");
+                c.setCategorySlug("fashion");
             } else if (containsAny(userMessage, "vans")) {
-                c.setKeyword("vans"); c.setCategorySlug("fashion");
+                c.setKeyword("vans");
+                c.setCategorySlug("fashion");
             } else if (containsAny(userMessage, "giày")) {
-                c.setKeyword("giày"); c.setCategorySlug("fashion");
-            // Home & Living
+                c.setKeyword("giày");
+                c.setCategorySlug("fashion");
+                // Home & Living
             } else if (containsAny(userMessage, "công thái học", "ergonomic")) {
-                c.setKeyword("công thái học"); c.setCategorySlug("home-living");
+                c.setKeyword("công thái học");
+                c.setCategorySlug("home-living");
             } else if (containsAny(userMessage, "ghế gaming")) {
-                c.setKeyword("gaming"); c.setCategorySlug("home-living");
+                c.setKeyword("gaming");
+                c.setCategorySlug("home-living");
             } else if (containsAny(userMessage, "ghế ăn")) {
-                c.setKeyword("ghế ăn"); c.setCategorySlug("home-living");
+                c.setKeyword("ghế ăn");
+                c.setCategorySlug("home-living");
             } else if (containsAny(userMessage, "ghế")) {
-                c.setKeyword("ghế"); c.setCategorySlug("home-living");
+                c.setKeyword("ghế");
+                c.setCategorySlug("home-living");
             } else if (containsAny(userMessage, "bàn làm việc")) {
-                c.setKeyword("bàn làm việc"); c.setCategorySlug("home-living");
+                c.setKeyword("bàn làm việc");
+                c.setCategorySlug("home-living");
             } else if (containsAny(userMessage, "bàn học")) {
-                c.setKeyword("bàn học"); c.setCategorySlug("home-living");
+                c.setKeyword("bàn học");
+                c.setCategorySlug("home-living");
             } else if (containsAny(userMessage, "bàn sofa")) {
-                c.setKeyword("bàn sofa"); c.setCategorySlug("home-living");
+                c.setKeyword("bàn sofa");
+                c.setCategorySlug("home-living");
             } else if (containsAny(userMessage, "bàn")) {
-                c.setKeyword("bàn"); c.setCategorySlug("home-living");
-            // Beauty
+                c.setKeyword("bàn");
+                c.setCategorySlug("home-living");
+                // Beauty
             } else if (containsAny(userMessage, "kem mắt", "caffeine")) {
-                c.setKeyword("kem mắt"); c.setCategorySlug("beauty");
+                c.setKeyword("kem mắt");
+                c.setCategorySlug("beauty");
             } else if (containsAny(userMessage, "chống lão hóa", "peptide")) {
-                c.setKeyword("kem chống lão hóa"); c.setCategorySlug("beauty");
+                c.setKeyword("kem chống lão hóa");
+                c.setCategorySlug("beauty");
             } else if (containsAny(userMessage, "dưỡng ẩm", "hyaluronic")) {
-                c.setKeyword("kem dưỡng ẩm"); c.setCategorySlug("beauty");
+                c.setKeyword("kem dưỡng ẩm");
+                c.setCategorySlug("beauty");
             } else if (containsAny(userMessage, "mặt nạ ngủ", "sleeping")) {
-                c.setKeyword("mặt nạ ngủ"); c.setCategorySlug("beauty");
+                c.setKeyword("mặt nạ ngủ");
+                c.setCategorySlug("beauty");
             } else if (containsAny(userMessage, "đất sét")) {
-                c.setKeyword("đất sét"); c.setCategorySlug("beauty");
+                c.setKeyword("đất sét");
+                c.setCategorySlug("beauty");
             } else if (containsAny(userMessage, "mặt nạ giấy", "sheet mask")) {
-                c.setKeyword("mặt nạ giấy"); c.setCategorySlug("beauty");
+                c.setKeyword("mặt nạ giấy");
+                c.setCategorySlug("beauty");
             } else if (containsAny(userMessage, "mặt nạ")) {
-                c.setKeyword("mặt nạ"); c.setCategorySlug("beauty");
-            // Electronics
+                c.setKeyword("mặt nạ");
+                c.setCategorySlug("beauty");
+                // Electronics
             } else if (containsAny(userMessage, "amoled", "đồng hồ thông minh")) {
-                c.setKeyword("đồng hồ thông minh"); c.setCategorySlug("electronics");
+                c.setKeyword("đồng hồ thông minh");
+                c.setCategorySlug("electronics");
             } else if (containsAny(userMessage, "gps", "đồng hồ thể thao")) {
-                c.setKeyword("đồng hồ thể thao"); c.setCategorySlug("electronics");
+                c.setKeyword("đồng hồ thể thao");
+                c.setCategorySlug("electronics");
             } else if (containsAny(userMessage, "đồng hồ", "smartwatch", "watch")) {
-                c.setKeyword("đồng hồ"); c.setCategorySlug("electronics");
+                c.setKeyword("đồng hồ");
+                c.setCategorySlug("electronics");
             }
         }
     }
@@ -950,9 +997,12 @@ public class ChatbotServiceImpl implements ChatbotService {
 
     private String inferBrandFromText(String text) {
         String msg = safeLower(text);
-        if (containsAny(msg, "samsung", "galaxy")) return "samsung";
-        if (containsAny(msg, "apple", "iphone")) return "apple";
-        if (containsAny(msg, "vans")) return "vans";
+        if (containsAny(msg, "samsung", "galaxy"))
+            return "samsung";
+        if (containsAny(msg, "apple", "iphone"))
+            return "apple";
+        if (containsAny(msg, "vans"))
+            return "vans";
         return null;
     }
 
@@ -961,50 +1011,85 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         if ("fashion".equals(categorySlug)) {
             // Thứ tự ưu tiên: cụ thể → chung
-            if (msg.contains("hoodie") || msg.contains("áo hoodie")) return "hoodie";
-            if (msg.contains("sơ mi") || msg.contains("oxford"))     return "sơ mi";
-            if (msg.contains("áo thun") || msg.contains("cotton"))   return "áo thun";
-            if (msg.contains("váy midi") || msg.contains("midi"))     return "váy midi";
-            if (msg.contains("váy công sở"))                         return "váy công sở";
-            if (msg.contains("váy") || msg.contains("đầm"))           return "váy";
-            if (msg.contains("sneaker") || msg.contains("giày sneaker")) return "sneaker";
-            if (msg.contains("vans"))                                return "vans";
-            if (msg.contains("giày"))                                return "giày";
-            if (msg.contains("áo"))                                  return "áo";
+            if (msg.contains("hoodie") || msg.contains("áo hoodie"))
+                return "hoodie";
+            if (msg.contains("sơ mi") || msg.contains("oxford"))
+                return "sơ mi";
+            if (msg.contains("áo thun") || msg.contains("cotton"))
+                return "áo thun";
+            if (msg.contains("váy midi") || msg.contains("midi"))
+                return "váy midi";
+            if (msg.contains("váy công sở"))
+                return "váy công sở";
+            if (msg.contains("váy") || msg.contains("đầm"))
+                return "váy";
+            if (msg.contains("sneaker") || msg.contains("giày sneaker"))
+                return "sneaker";
+            if (msg.contains("vans"))
+                return "vans";
+            if (msg.contains("giày"))
+                return "giày";
+            if (msg.contains("áo"))
+                return "áo";
         }
 
         if ("home-living".equals(categorySlug)) {
-            if (msg.contains("công thái học") || msg.contains("ergonomic")) return "công thái học";
-            if (msg.contains("ghế gaming") || msg.contains("gaming"))       return "gaming";
-            if (msg.contains("ghế ăn"))                                     return "ghế ăn";
-            if (msg.contains("ghế"))                                        return "ghế";
-            if (msg.contains("bàn làm việc"))                               return "bàn làm việc";
-            if (msg.contains("bàn học"))                                    return "bàn học";
-            if (msg.contains("bàn sofa"))                                   return "bàn sofa";
-            if (msg.contains("bàn"))                                        return "bàn";
+            if (msg.contains("công thái học") || msg.contains("ergonomic"))
+                return "công thái học";
+            if (msg.contains("ghế gaming") || msg.contains("gaming"))
+                return "gaming";
+            if (msg.contains("ghế ăn"))
+                return "ghế ăn";
+            if (msg.contains("ghế"))
+                return "ghế";
+            if (msg.contains("bàn làm việc"))
+                return "bàn làm việc";
+            if (msg.contains("bàn học"))
+                return "bàn học";
+            if (msg.contains("bàn sofa"))
+                return "bàn sofa";
+            if (msg.contains("bàn"))
+                return "bàn";
         }
 
         if ("beauty".equals(categorySlug)) {
-            if (msg.contains("kem mắt") || msg.contains("caffeine"))               return "kem mắt";
-            if (msg.contains("chống lão hóa") || msg.contains("peptide"))          return "kem chống lão hóa";
-            if (msg.contains("dưỡng ẩm") || msg.contains("hyaluronic"))            return "kem dưỡng ẩm";
-            if (msg.contains("mặt nạ ngủ") || msg.contains("sleeping mask"))        return "mặt nạ ngủ";
-            if (msg.contains("mặt nạ đất sét") || msg.contains("đất sét"))         return "mặt nạ đất sét";
-            if (msg.contains("mặt nạ giấy") || msg.contains("sheet mask"))         return "mặt nạ giấy";
-            if (msg.contains("mặt nạ"))                                            return "mặt nạ";
-            if (msg.contains("kem"))                                               return "kem";
+            if (msg.contains("kem mắt") || msg.contains("caffeine"))
+                return "kem mắt";
+            if (msg.contains("chống lão hóa") || msg.contains("peptide"))
+                return "kem chống lão hóa";
+            if (msg.contains("dưỡng ẩm") || msg.contains("hyaluronic"))
+                return "kem dưỡng ẩm";
+            if (msg.contains("mặt nạ ngủ") || msg.contains("sleeping mask"))
+                return "mặt nạ ngủ";
+            if (msg.contains("mặt nạ đất sét") || msg.contains("đất sét"))
+                return "mặt nạ đất sét";
+            if (msg.contains("mặt nạ giấy") || msg.contains("sheet mask"))
+                return "mặt nạ giấy";
+            if (msg.contains("mặt nạ"))
+                return "mặt nạ";
+            if (msg.contains("kem"))
+                return "kem";
         }
 
         if ("electronics".equals(categorySlug)) {
-            if (msg.contains("iphone 15")) return "iphone 15";
-            if (msg.contains("iphone 14")) return "iphone 14";
-            if (msg.contains("iphone"))   return "iphone";
-            if (msg.contains("s24 ultra") || msg.contains("galaxy s24")) return "galaxy s24";
-            if (msg.contains("s23") || msg.contains("galaxy s23"))       return "galaxy s23";
-            if (msg.contains("galaxy"))   return "galaxy";
-            if (msg.contains("amoled") || msg.contains("đồng hồ thông minh")) return "đồng hồ thông minh";
-            if (msg.contains("gps") || msg.contains("đồng hồ thể thao"))      return "đồng hồ thể thao";
-            if (msg.contains("đồng hồ"))  return "đồng hồ";
+            if (msg.contains("iphone 15"))
+                return "iphone 15";
+            if (msg.contains("iphone 14"))
+                return "iphone 14";
+            if (msg.contains("iphone"))
+                return "iphone";
+            if (msg.contains("s24 ultra") || msg.contains("galaxy s24"))
+                return "galaxy s24";
+            if (msg.contains("s23") || msg.contains("galaxy s23"))
+                return "galaxy s23";
+            if (msg.contains("galaxy"))
+                return "galaxy";
+            if (msg.contains("amoled") || msg.contains("đồng hồ thông minh"))
+                return "đồng hồ thông minh";
+            if (msg.contains("gps") || msg.contains("đồng hồ thể thao"))
+                return "đồng hồ thể thao";
+            if (msg.contains("đồng hồ"))
+                return "đồng hồ";
             return null; // "điện thoại" generic → để null, chỉ dùng category
         }
 
@@ -1096,7 +1181,8 @@ public class ChatbotServiceImpl implements ChatbotService {
     /**
      * Rule-based intent detection.
      * Thứ tự: order > policy > product > greeting > follow-up > other
-     * Policy check TRƯỚC product để tránh "chính sách mua hàng" bị nhầm thành product.
+     * Policy check TRƯỚC product để tránh "chính sách mua hàng" bị nhầm thành
+     * product.
      */
     private String detectIntentByRules(String message, List<ChatTurn> history, String sessionId) {
         String msg = safeLower(message);
@@ -1183,7 +1269,7 @@ public class ChatbotServiceImpl implements ChatbotService {
                 null, // bỏ minPrice
                 null, // bỏ maxPrice
                 c.getBrand(),
-                null  // bỏ minRating
+                null // bỏ minRating
         );
 
         List<Product> results = new ArrayList<>(productRepository.findAll(spec, pageable).getContent());
@@ -1195,9 +1281,8 @@ public class ChatbotServiceImpl implements ChatbotService {
                     c.getCategorySlug(),
                     null,
                     null,
-                    null,  // bỏ brand
-                    null
-            );
+                    null, // bỏ brand
+                    null);
             results = new ArrayList<>(productRepository.findAll(noBrand, pageable).getContent());
         }
 
@@ -1211,8 +1296,7 @@ public class ChatbotServiceImpl implements ChatbotService {
                     null,
                     null,
                     null,
-                    null
-            );
+                    null);
             results = new ArrayList<>(productRepository.findAll(categoryOnly, pageable).getContent());
         }
 
