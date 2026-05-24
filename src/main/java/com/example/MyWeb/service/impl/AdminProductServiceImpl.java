@@ -11,20 +11,27 @@ import com.example.MyWeb.repository.CategoryRepository;
 import com.example.MyWeb.repository.ProductRepository;
 import com.example.MyWeb.repository.ProductVariantRepository;
 import com.example.MyWeb.service.AdminProductService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AdminProductServiceImpl implements AdminProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
     private final ProductVariantRepository productVariantRepository;
+    private final ObjectMapper objectMapper;
 
     private AdminProductResponse toDto(Product p) {
         return AdminProductResponse.builder()
@@ -56,7 +63,33 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .status(p.getStatus())
                 .createdAt(p.getCreatedAt())
                 .updatedAt(p.getUpdatedAt())
+
+                // Thông số kỹ thuật
+                .specifications(parseSpecifications(p.getSpecifications()))
+
                 .build();
+    }
+
+    /** Parse JSON string → Map */
+    private Map<String, String> parseSpecifications(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, String>>() {});
+        } catch (Exception e) {
+            log.warn("Cannot parse specifications JSON: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Map → JSON string */
+    private String specsToJson(Map<String, String> specs) {
+        if (specs == null || specs.isEmpty()) return null;
+        try {
+            return objectMapper.writeValueAsString(specs);
+        } catch (Exception e) {
+            log.warn("Cannot serialize specifications: {}", e.getMessage());
+            return null;
+        }
     }
 
     @Override
@@ -94,6 +127,9 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .isFeatured(request.getIsFeatured() != null ? request.getIsFeatured() : false)
                 .videoUrl(request.getVideoUrl())
                 
+                // Specifications
+                .specifications(specsToJson(request.getSpecifications()))
+
                 // Default analytics fields
                 .averageRating(0.0)
                 .reviewCount(0)
@@ -176,6 +212,7 @@ public class AdminProductServiceImpl implements AdminProductService {
         p.setWeight(request.getWeight());
         p.setIsFeatured(request.getIsFeatured() != null ? request.getIsFeatured() : false);
         p.setVideoUrl(request.getVideoUrl());
+        p.setSpecifications(specsToJson(request.getSpecifications()));
 
         if (request.getCategoryId() != null) {
             Category category = categoryRepository.findById(request.getCategoryId())

@@ -42,4 +42,7 @@ public class AdminProductRequest {
 
     // ACTIVE / INACTIVE / DRAFT
     private String status;
+
+    // Thông số kỹ thuật theo category (key-value pairs)
+    private java.util.Map<String, String> specifications;
 }

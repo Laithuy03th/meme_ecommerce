@@ -194,6 +194,7 @@ public class ChatbotServiceImpl implements ChatbotService {
         return switch (intent) {
             case "greeting" -> handleGreeting(builder, userMessage, history);
             case "product" -> handleProductSearch(builder, userMessage, history, request.getSessionId());
+            case "specs" -> handleProductSpecs(builder, userMessage, history);
             case "policy" -> handlePolicyQuestion(builder, userMessage, history);
             case "order" -> handleOrderTracking(builder, userMessage, history, request.getUserId());
             default -> handleOther(builder, userMessage, history);
@@ -328,11 +329,25 @@ public class ChatbotServiceImpl implements ChatbotService {
         }).collect(Collectors.toList());
 
         String productListText = products.stream()
-                .map(p -> String.format("- %s (%s): %.0f VNĐ, đánh giá: %.1f★",
-                        p.getName(),
-                        p.getBrand() != null ? p.getBrand() : "N/A",
-                        p.getBasePrice(),
-                        p.getAverageRating() != null ? p.getAverageRating() : 0.0))
+                .map(p -> {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(String.format("- %s (%s): %.0f VNĐ, đánh giá: %.1f★",
+                            p.getName(),
+                            p.getBrand() != null ? p.getBrand() : "N/A",
+                            p.getBasePrice(),
+                            p.getAverageRating() != null ? p.getAverageRating() : 0.0));
+                    // Thêm thông số kỹ thuật nếu có
+                    if (p.getSpecifications() != null && !p.getSpecifications().isBlank()) {
+                        try {
+                            Map<String, String> specs = objectMapper.readValue(
+                                p.getSpecifications(),
+                                new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String, String>>() {});
+                            specs.entrySet().stream().limit(4).forEach(e ->
+                                sb.append("\n    ").append(e.getKey()).append(": ").append(e.getValue()));
+                        } catch (Exception ignored) {}
+                    }
+                    return sb.toString();
+                })
                 .collect(Collectors.joining("\n"));
 
         boolean shouldClarify = shouldAskClarification(constraints, heuristicFollowUp, products);
@@ -397,6 +412,96 @@ public class ChatbotServiceImpl implements ChatbotService {
                 .response(response)
                 .data(payload)
                 .quickReplies(quickReplies)
+                .build();
+    }
+
+    // =========================================================================
+    // Handler: Specs — Thông số kỹ thuật sản phẩm
+    // =========================================================================
+
+    private ChatResponse handleProductSpecs(ChatResponse.ChatResponseBuilder builder,
+            String userMessage, List<ChatTurn> history) {
+
+        // Trích xuất tên sản phẩm từ câu hỏi bằng rule-based
+        ProductSearchConstraints constraints = extractConstraintsWithFallback(userMessage, history);
+        normalizeConstraintsForCatalog(constraints, userMessage);
+
+        List<Product> products = searchProductsAdvanced(constraints, 1);
+
+        if (products.isEmpty()) {
+            // Thử tìm rộng hơn bằng cách bỏ bớt các điều kiện lọc (chỉ giữ keyword)
+            ProductSearchConstraints relaxedConstraints = new ProductSearchConstraints();
+            relaxedConstraints.setKeyword(constraints.getKeyword());
+            products = searchProductsAdvanced(relaxedConstraints, 1);
+        }
+
+        if (products.isEmpty()) {
+            return builder
+                    .response("Mình chưa tìm thấy sản phẩm bạn đang hỏi. Bạn có thể nói rõ hơn tên sản phẩm không ạ? 🔍")
+                    .quickReplies(List.of(
+                            QuickReply.builder().label("Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build()))
+                    .build();
+        }
+
+        Product product = products.get(0);
+        String specsJson = product.getSpecifications();
+
+        if (specsJson == null || specsJson.isBlank()) {
+            return builder
+                    .response(String.format("Hiện tại mình chưa có thông số kỹ thuật chi tiết cho **%s**. " +
+                            "Bạn có muốn mình tư vấn về sản phẩm này không? 😊", product.getName()))
+                    .quickReplies(List.of(
+                            QuickReply.builder().label("Tư vấn sản phẩm").value("tư vấn về " + product.getName()).build(),
+                            QuickReply.builder().label("Tìm sản phẩm khác").value("tìm sản phẩm khác").build()))
+                    .build();
+        }
+
+        // Parse specs
+        Map<String, String> specs;
+        try {
+            specs = objectMapper.readValue(specsJson,
+                new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String, String>>() {});
+        } catch (Exception e) {
+            log.warn("Cannot parse specs for product {}: {}", product.getId(), e.getMessage());
+            specs = new LinkedHashMap<>();
+        }
+
+        // Build specs text cho LLM
+        StringBuilder specsText = new StringBuilder();
+        specs.forEach((k, v) -> specsText.append(k).append(": ").append(v).append("\n"));
+
+        String systemPrompt = String.format("""
+                === THÔNG SỐ KỸ THUẬT SẢN PHẨM ===
+                Sản phẩm: %s
+                Giá: %.0f VNĐ
+                Thương hiệu: %s
+
+                %s
+
+                === NHIỆM VỤ ===
+                Bạn là trợ lý AI MemeShop. Hãy trình bày thông số kỹ thuật trên một cách rõ ràng, dễ đọc.
+                Dùng emoji phù hợp cho mỗi thông số. Cuối cùng nhận xét ngắn 1-2 câu về điểm nổi bật.
+                """,
+                product.getName(),
+                product.getBasePrice(),
+                product.getBrand() != null ? product.getBrand() : "N/A",
+                specsText.toString());
+
+        String response = llmService.generateResponse(systemPrompt, userMessage, history);
+
+        // Data payload để FE có thể hiển thị structured
+        Map<String, Object> specsPayload = new LinkedHashMap<>();
+        specsPayload.put("productId", product.getId());
+        specsPayload.put("productName", product.getName());
+        specsPayload.put("specifications", specs);
+
+        return builder
+                .response(response)
+                .data(Map.of("specs", specsPayload))
+                .quickReplies(List.of(
+                        QuickReply.builder().label("Mua ngay").value("mua " + product.getName()).build(),
+                        QuickReply.builder().label("So sánh").value("so sánh sản phẩm tương tự").build(),
+                        QuickReply.builder().label("Xem thêm").value("tìm sản phẩm tương tự").build()))
                 .build();
     }
 
@@ -1201,6 +1306,16 @@ public class ChatbotServiceImpl implements ChatbotService {
                 "thanh toán", "hình thức thanh toán", "quy trình thanh toán",
                 "cod", "vnpay", "momo", "hoàn tiền", "voucher", "khuyến mãi")) {
             return "policy";
+        }
+
+        // 2.5. Thông số kỹ thuật — trước product để không bị nhầm thành tìm kiếm
+        if (containsAny(msg,
+                "thông số", "thông số kỹ thuật", "specs", "specification",
+                "cấu hình", "chi tiết kỹ thuật", "màn hình bao nhiêu",
+                "ram bao nhiêu", "pin bao nhiêu", "camera mấy chấm",
+                "chất liệu", "kích thước", "trọng lượng bao nhiêu",
+                "dung tích", "thành phần", "xuất xứ")) {
+            return "specs";
         }
 
         // 3. Product — dùng product noun cụ thể từ catalog thực tế

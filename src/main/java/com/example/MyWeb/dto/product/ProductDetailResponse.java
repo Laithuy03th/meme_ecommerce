@@ -4,6 +4,7 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 @Setter
@@ -51,4 +52,7 @@ public class ProductDetailResponse {
 
     private List<ProductImageResponse> images;
     private List<ProductVariantResponse> variants;
+
+    // Thông số kỹ thuật theo category
+    private Map<String, String> specifications;
 }

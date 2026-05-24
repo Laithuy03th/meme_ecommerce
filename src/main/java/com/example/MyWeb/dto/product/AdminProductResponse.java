@@ -36,4 +36,7 @@ public class AdminProductResponse {
     private String status;
     private java.time.LocalDateTime createdAt;
     private java.time.LocalDateTime updatedAt;
+
+    // Thông số kỹ thuật
+    private java.util.Map<String, String> specifications;
 }

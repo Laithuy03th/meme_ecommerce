@@ -4,7 +4,11 @@ import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.MyWeb.dto.product.ProductDetailResponse;
@@ -20,14 +24,17 @@ import com.example.MyWeb.repository.ProductRepository;
 import com.example.MyWeb.repository.spec.ProductSpecifications;
 import com.example.MyWeb.service.ProductService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ProductServiceImpl implements ProductService {
 
         private final ProductRepository productRepository;
+        private final ObjectMapper objectMapper;
 
         // ================== LIST ==================
 
@@ -131,6 +138,37 @@ public class ProductServiceImpl implements ProductService {
                 }
         }
 
+        /**
+         * Parse JSON string specifications thành Map<String, String>.
+         * Trả về null nếu JSON null/rỗng/lỗi.
+         */
+        @SuppressWarnings("unchecked")
+        private Map<String, String> parseSpecifications(String json) {
+                if (json == null || json.isBlank())
+                        return null;
+                try {
+                        return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, String>>() {
+                        });
+                } catch (Exception e) {
+                        log.warn("Cannot parse specifications JSON: {}", e.getMessage());
+                        return null;
+                }
+        }
+
+        /**
+         * Convert Map<String, String> thành JSON string để lưu DB.
+         */
+        private String specsToJson(Map<String, String> specs) {
+                if (specs == null || specs.isEmpty())
+                        return null;
+                try {
+                        return objectMapper.writeValueAsString(specs);
+                } catch (Exception e) {
+                        log.warn("Cannot serialize specifications: {}", e.getMessage());
+                        return null;
+                }
+        }
+
         // UPDATED: Enhanced with all new fields
         private ProductDetailResponse toDetail(Product p) {
                 // Sort images theo sortOrder rồi id
@@ -192,6 +230,10 @@ public class ProductServiceImpl implements ProductService {
                                 .updatedAt(p.getUpdatedAt())
                                 .images(imageDtos)
                                 .variants(variantDtos)
+
+                                // Thông số kỹ thuật
+                                .specifications(parseSpecifications(p.getSpecifications()))
+
                                 .build();
         }
 

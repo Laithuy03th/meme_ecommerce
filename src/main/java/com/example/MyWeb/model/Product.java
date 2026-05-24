@@ -80,6 +80,16 @@ public class Product {
     @Column(name = "video_url")
     private String videoUrl; // URL video giới thiệu sản phẩm
 
+    /**
+     * Thông số kỹ thuật theo category, lưu dạng JSON.
+     * Electronics: {"screen": "6.1 inch", "ram": "8GB", ...}
+     * Beauty: {"volume": "30ml", "skinType": "Da khô", ...}
+     * Fashion: {"material": "100% Cotton", "style": "Casual", ...}
+     * Home-Living: {"material": "Gỗ MDF", "dimensions": "60x65x120cm", ...}
+     */
+    @Column(name = "specifications", columnDefinition = "TEXT")
+    private String specifications;
+
     @Column(nullable = false)
     private String status = "ACTIVE"; // ACTIVE / INACTIVE / DRAFT
 
