@@ -273,10 +273,11 @@ public class GeminiLlmService implements LlmService {
                     .addHeader("Content-Type", "application/json")
                     .build();
             try (Response response = httpClient.newCall(currentRequest).execute()) {
-                if (response.code() == 429) {
+                int code = response.code();
+                if (code == 429 || code >= 500) {
                     if (attempt < retryDelaysMs.length) {
-                        log.warn("[Gemini] Rate limit 429, retry in {}ms (attempt {}/{})",
-                                retryDelaysMs[attempt], attempt + 1, retryDelaysMs.length);
+                        log.warn("[Gemini] Error {}, retry in {}ms (attempt {}/{})",
+                                code, retryDelaysMs[attempt], attempt + 1, retryDelaysMs.length);
                         try {
                             Thread.sleep(retryDelaysMs[attempt]);
                         } catch (InterruptedException ie) {
@@ -284,9 +285,11 @@ public class GeminiLlmService implements LlmService {
                         }
                         continue;
                     }
-                    log.error("[Gemini] Rate limit 429 persists after {} retries. API key may have exhausted quota.",
-                            retryDelaysMs.length);
-                    return "Quá nhiều yêu cầu tới hệ thống. Vui lòng thử lại sau vài giây nhé!";
+                    log.error("[Gemini] Error {} persists after {} retries.", code, retryDelaysMs.length);
+                    if (code == 429) {
+                        return "Quá nhiều yêu cầu tới hệ thống. Vui lòng thử lại sau vài giây nhé!";
+                    }
+                    return getFallbackResponse();
                 }
                 if (!response.isSuccessful()) {
                     String errorBody = response.body() != null ? response.body().string() : "no body";

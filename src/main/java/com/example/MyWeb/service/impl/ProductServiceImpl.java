@@ -49,6 +49,7 @@ public class ProductServiceImpl implements ProductService {
                                 .price(p.getBasePrice())
                                 .categorySlug(p.getCategory().getSlug())
                                 .categoryName(p.getCategory().getName())
+                                .shortDesc(p.getShortDesc())
 
                                 // Enhanced fields
                                 .brand(p.getBrand())

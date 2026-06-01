@@ -340,11 +340,13 @@ public class ChatbotServiceImpl implements ChatbotService {
                     if (p.getSpecifications() != null && !p.getSpecifications().isBlank()) {
                         try {
                             Map<String, String> specs = objectMapper.readValue(
-                                p.getSpecifications(),
-                                new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String, String>>() {});
-                            specs.entrySet().stream().limit(4).forEach(e ->
-                                sb.append("\n    ").append(e.getKey()).append(": ").append(e.getValue()));
-                        } catch (Exception ignored) {}
+                                    p.getSpecifications(),
+                                    new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String, String>>() {
+                                    });
+                            specs.entrySet().stream().limit(4).forEach(
+                                    e -> sb.append("\n    ").append(e.getKey()).append(": ").append(e.getValue()));
+                        } catch (Exception ignored) {
+                        }
                     }
                     return sb.toString();
                 })
@@ -437,7 +439,8 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         if (products.isEmpty()) {
             return builder
-                    .response("Mình chưa tìm thấy sản phẩm bạn đang hỏi. Bạn có thể nói rõ hơn tên sản phẩm không ạ? 🔍")
+                    .response(
+                            "Mình chưa tìm thấy sản phẩm bạn đang hỏi. Bạn có thể nói rõ hơn tên sản phẩm không ạ? 🔍")
                     .quickReplies(List.of(
                             QuickReply.builder().label("Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build()))
                     .build();
@@ -451,7 +454,8 @@ public class ChatbotServiceImpl implements ChatbotService {
                     .response(String.format("Hiện tại mình chưa có thông số kỹ thuật chi tiết cho **%s**. " +
                             "Bạn có muốn mình tư vấn về sản phẩm này không? 😊", product.getName()))
                     .quickReplies(List.of(
-                            QuickReply.builder().label("Tư vấn sản phẩm").value("tư vấn về " + product.getName()).build(),
+                            QuickReply.builder().label("Tư vấn sản phẩm").value("tư vấn về " + product.getName())
+                                    .build(),
                             QuickReply.builder().label("Tìm sản phẩm khác").value("tìm sản phẩm khác").build()))
                     .build();
         }
@@ -460,7 +464,8 @@ public class ChatbotServiceImpl implements ChatbotService {
         Map<String, String> specs;
         try {
             specs = objectMapper.readValue(specsJson,
-                new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String, String>>() {});
+                    new com.fasterxml.jackson.core.type.TypeReference<LinkedHashMap<String, String>>() {
+                    });
         } catch (Exception e) {
             log.warn("Cannot parse specs for product {}: {}", product.getId(), e.getMessage());
             specs = new LinkedHashMap<>();

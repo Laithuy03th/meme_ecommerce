@@ -19,6 +19,7 @@ public class ProductListItemResponse {
 
     private String categorySlug;
     private String categoryName;
+    private String shortDesc;
 
     // Enhanced fields for better UX (Shopee-level)
     private String brand;
