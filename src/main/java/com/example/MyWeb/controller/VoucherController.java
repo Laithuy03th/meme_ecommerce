@@ -79,7 +79,8 @@ public class VoucherController {
     @GetMapping("/vouchers/validate")
     public ResponseEntity<VoucherValidationResponse> validateVoucher(
             @RequestParam String code,
-            @RequestParam Double orderAmount) {
-        return ResponseEntity.ok(voucherService.validateVoucher(code, orderAmount));
+            @RequestParam Double orderAmount,
+            @RequestParam(required = false) Long userId) { // FIX: Thêm userId để check per-user limit
+        return ResponseEntity.ok(voucherService.validateVoucher(code, orderAmount, userId));
     }
 }

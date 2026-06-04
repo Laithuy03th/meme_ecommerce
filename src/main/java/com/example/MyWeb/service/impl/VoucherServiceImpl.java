@@ -6,6 +6,7 @@ import com.example.MyWeb.dto.voucher.VoucherValidationResponse;
 import com.example.MyWeb.exception.ResourceNotFoundException;
 import com.example.MyWeb.model.Voucher;
 import com.example.MyWeb.model.enums.DiscountType;
+import com.example.MyWeb.repository.OrderRepository;
 import com.example.MyWeb.repository.VoucherRepository;
 import com.example.MyWeb.service.VoucherService;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class VoucherServiceImpl implements VoucherService {
 
     private final VoucherRepository voucherRepository;
+    private final OrderRepository orderRepository;
 
     @Override
     @Transactional
@@ -55,13 +57,20 @@ public class VoucherServiceImpl implements VoucherService {
     @Override
     @Transactional(readOnly = true)
     public VoucherValidationResponse validateVoucher(String code, Double orderAmount) {
+        // Delegate sang overload có userId, không kiểm tra per-user
+        return validateVoucher(code, orderAmount, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public VoucherValidationResponse validateVoucher(String code, Double orderAmount, Long userId) {
         Voucher voucher = voucherRepository.findByCode(code.toUpperCase())
                 .orElse(null);
 
         if (voucher == null) {
             return VoucherValidationResponse.builder()
                     .valid(false)
-                    .message("Voucher code not found")
+                    .message("Mã voucher không tồn tại")
                     .discountAmount(0.0)
                     .build();
         }
@@ -69,16 +78,29 @@ public class VoucherServiceImpl implements VoucherService {
         if (!voucher.isValid()) {
             return VoucherValidationResponse.builder()
                     .valid(false)
-                    .message("Voucher is not valid or has expired")
+                    .message("Voucher đã hết hạn hoặc không còn hiệu lực")
                     .discountAmount(0.0)
                     .voucher(toDto(voucher))
                     .build();
         }
 
+        // FIX: Kiểm tra giới hạn per-user nếu có userId
+        if (userId != null && voucher.getUsageLimitPerUser() != null) {
+            long userUsage = orderRepository.countByUser_IdAndVoucherCode(userId, voucher.getCode());
+            if (userUsage >= voucher.getUsageLimitPerUser()) {
+                return VoucherValidationResponse.builder()
+                        .valid(false)
+                        .message("Bạn đã sử dụng hết lượt cho phép của voucher này")
+                        .discountAmount(0.0)
+                        .voucher(toDto(voucher))
+                        .build();
+            }
+        }
+
         if (voucher.getMinOrderAmount() != null && orderAmount < voucher.getMinOrderAmount()) {
             return VoucherValidationResponse.builder()
                     .valid(false)
-                    .message("Order amount must be at least " + voucher.getMinOrderAmount())
+                    .message("Giỏ hàng cần tối thiểu " + String.format("%,.0fđ", voucher.getMinOrderAmount()) + " để dùng voucher này")
                     .discountAmount(0.0)
                     .voucher(toDto(voucher))
                     .build();
@@ -88,7 +110,7 @@ public class VoucherServiceImpl implements VoucherService {
 
         return VoucherValidationResponse.builder()
                 .valid(true)
-                .message("Voucher is valid")
+                .message("Voucher hợp lệ")
                 .discountAmount(discountAmount)
                 .voucher(toDto(voucher))
                 .build();

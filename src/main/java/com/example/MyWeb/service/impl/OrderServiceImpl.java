@@ -258,9 +258,12 @@ public class OrderServiceImpl implements OrderService {
                                 discountAmount = voucher.calculateDiscount(eligibleAmount);
                                 voucherCode = voucher.getCode();
 
-                                // Increment voucher usage
-                                voucher.setUsedCount(voucher.getUsedCount() + 1);
-                                voucherRepository.save(voucher);
+                                // FIX Race Condition: Dùng Atomic SQL UPDATE thay vì read-then-write
+                                // Nếu 2 user checkout cùng lúc, chỉ 1 người được dùng voucher
+                                int updated = voucherRepository.incrementUsedCount(voucher.getId());
+                                if (updated == 0) {
+                                    throw new RuntimeException("Voucher vừa hết lượt sử dụng. Vui lòng thử voucher khác!");
+                                }
                         } else {
                                 // If eligibleAmount is 0 but we are here, it means voucher valid but no product
                                 // match.
@@ -268,8 +271,11 @@ public class OrderServiceImpl implements OrderService {
                                 // Yes, if Free Shipping was applied.
                                 if (Boolean.TRUE.equals(voucher.getFreeShipping())) {
                                         voucherCode = voucher.getCode();
-                                        voucher.setUsedCount(voucher.getUsedCount() + 1);
-                                        voucherRepository.save(voucher);
+                                        // FIX Race Condition: Dùng Atomic SQL UPDATE
+                                        int updatedFreeShip = voucherRepository.incrementUsedCount(voucher.getId());
+                                        if (updatedFreeShip == 0) {
+                                            throw new RuntimeException("Voucher vừa hết lượt sử dụng. Vui lòng thử voucher khác!");
+                                        }
                                 } else {
                                         throw new RuntimeException(
                                                         "This voucher is not applicable to any items in your cart");
@@ -277,7 +283,9 @@ public class OrderServiceImpl implements OrderService {
                         }
                 }
 
-                double totalAmount = itemsTotal + shippingFee - discountAmount;
+                // FIX: Math.max(0.0,...) đảm bảo tổng tiền không bao giờ âm
+                // (trường hợp FreeShipping + discount lớn cộng lại > itemsTotal)
+                double totalAmount = Math.max(0.0, itemsTotal + shippingFee - discountAmount);
 
                 LocalDateTime now = LocalDateTime.now();
 
