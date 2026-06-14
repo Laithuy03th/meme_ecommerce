@@ -20,7 +20,7 @@ public class ProductVariantRequest {
     @NotNull(message = "Size is required")
     private String size;
 
-    private Double price; // null = use basePrice
+    private Double price;
 
     @NotNull(message = "Stock is required")
     private Integer stock;

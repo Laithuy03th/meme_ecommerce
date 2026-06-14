@@ -48,8 +48,7 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .thumbnailUrl(p.getThumbnailUrl())
                 .imageUrls(p.getImages() != null ? p.getImages().stream().map(ProductImage::getImageUrl)
                         .collect(java.util.stream.Collectors.toList()) : null)
-                
-                // Advanced fields
+
                 .brand(p.getBrand())
                 .sku(p.getSku())
                 .weight(p.getWeight())
@@ -59,7 +58,7 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .reviewCount(p.getReviewCount())
                 .soldCount(p.getSoldCount())
                 .viewCount(p.getViewCount())
-                
+
                 .status(p.getStatus())
                 .createdAt(p.getCreatedAt())
                 .updatedAt(p.getUpdatedAt())
@@ -70,20 +69,21 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .build();
     }
 
-    /** Parse JSON string → Map */
     private Map<String, String> parseSpecifications(String json) {
-        if (json == null || json.isBlank()) return null;
+        if (json == null || json.isBlank())
+            return null;
         try {
-            return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, String>>() {});
+            return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, String>>() {
+            });
         } catch (Exception e) {
             log.warn("Cannot parse specifications JSON: {}", e.getMessage());
             return null;
         }
     }
 
-    /** Map → JSON string */
     private String specsToJson(Map<String, String> specs) {
-        if (specs == null || specs.isEmpty()) return null;
+        if (specs == null || specs.isEmpty())
+            return null;
         try {
             return objectMapper.writeValueAsString(specs);
         } catch (Exception e) {
@@ -100,7 +100,6 @@ public class AdminProductServiceImpl implements AdminProductService {
             slug = generateSlug(request.getName());
         }
 
-        // Lỗi 3 Fix: Báo lỗi trực tiếp cho admin thay vì dùng timestamp dài ngoằng
         if (productRepository.existsBySlug(slug)) {
             throw new IllegalArgumentException("Slug đã tồn tại: " + slug + ". Vui lòng chọn slug khác.");
         }
@@ -119,23 +118,21 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .basePrice(request.getBasePrice())
                 .stockQuantity(request.getStockQuantity() != null ? request.getStockQuantity() : 0)
                 .thumbnailUrl(request.getThumbnailUrl())
-                
-                // Lỗi 1 Fix: Save new advanced fields
+
                 .brand(request.getBrand())
                 .sku(request.getSku())
                 .weight(request.getWeight())
                 .isFeatured(request.getIsFeatured() != null ? request.getIsFeatured() : false)
                 .videoUrl(request.getVideoUrl())
-                
+
                 // Specifications
                 .specifications(specsToJson(request.getSpecifications()))
 
-                // Default analytics fields
                 .averageRating(0.0)
                 .reviewCount(0)
                 .soldCount(0)
                 .viewCount(0)
-                
+
                 .status(request.getStatus() != null ? request.getStatus() : "ACTIVE")
                 .createdAt(now)
                 .updatedAt(now)
@@ -156,7 +153,6 @@ public class AdminProductServiceImpl implements AdminProductService {
 
         p = productRepository.save(p);
 
-        // Lỗi 2 Fix: Tự động tạo Variant mặc định để Product có thể đặt hàng ngay.
         ProductVariant defaultVariant = ProductVariant.builder()
                 .product(p)
                 .sku(p.getSku() != null ? p.getSku() + "-DEF" : p.getSlug().toUpperCase() + "-DEF")
@@ -166,7 +162,7 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
-                
+
         productVariantRepository.save(defaultVariant);
 
         return toDto(p);
@@ -192,13 +188,12 @@ public class AdminProductServiceImpl implements AdminProductService {
 
         if (request.getSlug() != null && !request.getSlug().equals(p.getSlug())) {
             if (productRepository.existsBySlug(request.getSlug())) {
-                throw new IllegalArgumentException("Slug đã tồn tại: " + request.getSlug() + ". Vui lòng chọn slug khác.");
+                throw new IllegalArgumentException(
+                        "Slug đã tồn tại: " + request.getSlug() + ". Vui lòng chọn slug khác.");
             }
             p.setSlug(request.getSlug());
         }
 
-        // Lỗi 4 Fix: Overwrite theo chuẩn PUT, nếu request gửi null/rỗng thì sẽ update thành null/rỗng
-        // Cho phép Admin xoá trắng mô tả (shortDesc, longDesc, brand...)
         p.setName(request.getName());
         p.setShortDesc(request.getShortDesc());
         p.setLongDesc(request.getLongDesc());

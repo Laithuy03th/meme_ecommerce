@@ -69,6 +69,5 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
 
         List<Product> findByNameContainingIgnoreCaseAndStatus(String name, String status);
 
-        // For DataSeeder: count existing products in a category
         long countByCategory(com.example.MyWeb.model.Category category);
 }

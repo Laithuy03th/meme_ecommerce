@@ -13,7 +13,7 @@ import java.util.Optional;
 public interface CustomerProfileRepository extends JpaRepository<CustomerProfile, Long> {
     Optional<CustomerProfile> findByUser(User user);
 
-    // L12 FIX: Load profile theo danh sách userId trong 1 query (tránh N+1)
+    // Load profile theo danh sách userId trong 1 query (tránh N+1)
     @Query("SELECT cp FROM CustomerProfile cp WHERE cp.user.id IN :userIds")
     List<CustomerProfile> findByUserIdIn(@Param("userIds") List<Long> userIds);
 }

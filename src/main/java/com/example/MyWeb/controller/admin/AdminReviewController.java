@@ -16,7 +16,6 @@ public class AdminReviewController {
 
     private final ReviewService reviewService;
 
-    // Get All Reviews (Dashboard)
     @GetMapping
     public ResponseEntity<Page<ReviewResponse>> getAllReviews(
             @RequestParam(defaultValue = "0") int page,
@@ -25,7 +24,6 @@ public class AdminReviewController {
         return ResponseEntity.ok(reviewService.getAllReviews(page, size, rating));
     }
 
-    // Toggle Visibility (Hide/Show)
     @PutMapping("/{reviewId}/visibility")
     public ResponseEntity<Void> toggleVisibility(
             @PathVariable Long reviewId,

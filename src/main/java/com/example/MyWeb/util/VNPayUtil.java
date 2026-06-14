@@ -11,15 +11,11 @@ import java.util.*;
 
 public class VNPayUtil {
 
-    /**
-     * Generate secure hash for VNPay payment request
-     */
     public static String generateSecureHash(Map<String, String> params, String secretKey) {
-        // Sort parameters by key
+
         List<String> fieldNames = new ArrayList<>(params.keySet());
         Collections.sort(fieldNames);
 
-        // Build hash data
         StringBuilder hashData = new StringBuilder();
         StringBuilder query = new StringBuilder();
 
@@ -28,7 +24,7 @@ public class VNPayUtil {
             String fieldName = itr.next();
             String fieldValue = params.get(fieldName);
             if ((fieldValue != null) && (fieldValue.length() > 0)) {
-                // Build hash data
+
                 hashData.append(fieldName);
                 hashData.append('=');
                 try {
@@ -37,7 +33,6 @@ public class VNPayUtil {
                     hashData.append(fieldValue);
                 }
 
-                // Build query string
                 query.append(URLEncoder.encode(fieldName, StandardCharsets.US_ASCII));
                 query.append('=');
                 query.append(URLEncoder.encode(fieldValue, StandardCharsets.US_ASCII));
@@ -56,7 +51,7 @@ public class VNPayUtil {
      * Verify secure hash from VNPay callback
      */
     public static boolean verifySecureHash(Map<String, String> params, String secretKey, String vnpSecureHash) {
-        // Remove hash field before verification
+
         params.remove("vnp_SecureHash");
         params.remove("vnp_SecureHashType");
 
@@ -79,9 +74,6 @@ public class VNPayUtil {
         }
     }
 
-    /**
-     * Convert bytes to hex string
-     */
     private static String bytesToHex(byte[] bytes) {
         StringBuilder result = new StringBuilder();
         for (byte b : bytes) {

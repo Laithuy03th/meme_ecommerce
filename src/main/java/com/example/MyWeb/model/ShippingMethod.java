@@ -3,12 +3,6 @@ package com.example.MyWeb.model;
 import jakarta.persistence.*;
 import lombok.*;
 
-/**
- * Shipping Method entity
- * Represents different shipping options (Standard, Express, Instant)
- * 
- * @author Senior Software Engineer
- */
 @Entity
 @Table(name = "shipping_methods")
 @Getter
@@ -51,9 +45,6 @@ public class ShippingMethod {
     @Column(name = "icon_url")
     private String iconUrl; // Icon for frontend display
 
-    /**
-     * Get estimated delivery time as string
-     */
     @Transient
     public String getEstimatedDeliveryTime() {
         if (estimatedMinDays == null || estimatedMaxDays == null) {
@@ -65,9 +56,6 @@ public class ShippingMethod {
         return estimatedMinDays + "-" + estimatedMaxDays + " ngày";
     }
 
-    /**
-     * Check if this is express shipping
-     */
     @Transient
     public boolean isExpress() {
         return "EXPRESS".equalsIgnoreCase(code) || "INSTANT".equalsIgnoreCase(code);

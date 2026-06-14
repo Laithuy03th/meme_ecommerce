@@ -6,9 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Repository for ShippingMethod entity
- */
 public interface ShippingMethodRepository extends JpaRepository<ShippingMethod, Long> {
 
     /**

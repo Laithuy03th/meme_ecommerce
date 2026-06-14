@@ -12,11 +12,8 @@ public class ProductVariantResponse {
     private String sku;
     private String color;
     private String size;
-
-    // Giá hiệu lực: nếu variant.price != null thì dùng,
-    // còn null thì FE có thể fallback sang basePrice của product
     private Double price;
 
     private Integer stock;
-    private String status; // ACTIVE / INACTIVE...
+    private String status;
 }

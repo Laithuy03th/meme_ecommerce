@@ -113,7 +113,6 @@ public class ProductSpecifications {
         return Arrays.stream(keyword.toLowerCase(Locale.ROOT).trim().split("\\s+"))
                 .map(String::trim)
                 .filter(s -> !s.isBlank())
-                // Đã bỏ s.length() >= 2 để hỗ trợ tìm kiếm size S, M, L
                 .filter(s -> !STOP_WORDS.contains(s))
                 .distinct()
                 .collect(Collectors.toList());

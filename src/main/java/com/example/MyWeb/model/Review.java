@@ -26,7 +26,6 @@ public class Review {
     @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
-    // Link review to specific purchase (Shopee-level feature)
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id")
     private Order order;
@@ -44,7 +43,6 @@ public class Review {
     @Column(name = "image_url")
     private String imageUrl;
 
-    // Edit tracking (Shopee: max 2 edits)
     @Column(name = "edit_count")
     @Builder.Default
     private Integer editCount = 0;

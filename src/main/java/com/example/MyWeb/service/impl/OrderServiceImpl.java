@@ -39,7 +39,6 @@ public class OrderServiceImpl implements OrderService {
         private final ProductRepository productRepository;
         private final ProductVariantRepository productVariantRepository;
 
-        // NEW: Inject StockService for proper stock management
         private final StockService stockService;
         private final ShippingFeeService shippingFeeService;
         private final ShippingMethodRepository shippingMethodRepository;
@@ -96,7 +95,6 @@ public class OrderServiceImpl implements OrderService {
                         throw new RuntimeException("Cart is empty");
                 }
 
-                // NEW: Filter items if selectedCartItemIds is provided
                 java.util.List<CartItem> checkoutItems;
                 if (request.getSelectedCartItemIds() != null && !request.getSelectedCartItemIds().isEmpty()) {
                         java.util.List<Long> selectedIds = request.getSelectedCartItemIds();
@@ -108,7 +106,7 @@ public class OrderServiceImpl implements OrderService {
                                 throw new RuntimeException("One or more selected items are not in your cart");
                         }
                 } else {
-                        // Default: Buy all
+
                         checkoutItems = new ArrayList<>(cart.getItems());
                 }
 
@@ -117,12 +115,14 @@ public class OrderServiceImpl implements OrderService {
                 }
 
                 // [Tầng 4 - Deadlock Prevention] Tránh Deadlock khi Update Stock
-                // Sắp xếp items theo ProductId và VariantId tăng dần. 
-                // DB sẽ khóa dòng theo một chiều xuyên suốt mọi giao dịch, triệt tiêu khả năng 2 giao dịch khóa chéo nhau gây Deadlock.
+                // Sắp xếp items theo ProductId và VariantId tăng dần.
+                // DB sẽ khóa dòng theo một chiều xuyên suốt mọi giao dịch, triệt tiêu khả năng
+                // 2 giao dịch khóa chéo nhau gây Deadlock.
                 checkoutItems.sort((item1, item2) -> {
                         int pCmp = item1.getProduct().getId().compareTo(item2.getProduct().getId());
-                        if (pCmp != 0) return pCmp;
-                        
+                        if (pCmp != 0)
+                                return pCmp;
+
                         Long v1 = item1.getVariant() != null ? item1.getVariant().getId() : 0L;
                         Long v2 = item2.getVariant() != null ? item2.getVariant().getId() : 0L;
                         return v1.compareTo(v2);
@@ -169,15 +169,13 @@ public class OrderServiceImpl implements OrderService {
                                 .mapToDouble(CartItem::getTotalPrice)
                                 .sum();
 
-                // 1. Calculate Total Weight (Set to 0.0 as per business rule - simplified
-                // shipping)
                 double totalWeight = 0.0;
 
                 // 2. Shipping Method
                 ShippingMethod shippingMethod = shippingMethodRepository.findById(request.getShippingMethodId())
                                 .orElseThrow(() -> new RuntimeException("Shipping method not found"));
 
-                // 3. Payment Method (Parse here for Fee Calculation)
+                // 3. Payment Method
                 PaymentMethod pm;
                 try {
                         pm = PaymentMethod.valueOf(request.getPaymentMethod());
@@ -185,43 +183,34 @@ public class OrderServiceImpl implements OrderService {
                         throw new RuntimeException("Invalid payment method: " + request.getPaymentMethod());
                 }
 
-                // 4. Voucher (Fetch for Free Shipping check)
+                // 4. Voucher
                 Voucher voucher = null;
                 boolean shouldApplyVoucher = request.getVoucherCode() != null && !request.getVoucherCode().isBlank();
                 if (shouldApplyVoucher) {
                         voucher = voucherRepository.findByCode(request.getVoucherCode().toUpperCase()).orElse(null);
                 }
 
-                // 4.1 Filter items for Voucher Category Check (using checkoutItems)
-                // (Logic inside voucher checking below uses 'cart.getItems()', need to update
-                // to 'checkoutItems')
-
-                // 5. Calculate Fee
                 double shippingFee = shippingFeeService.calculateFee(shippingMethod, address, totalWeight, pm, voucher);
 
                 double discountAmount = 0.0;
                 String voucherCode = null;
 
-                // Apply voucher if provided (Product Discount)
                 if (voucher != null) {
 
-                        // 1. Validate basic rules
                         if (!voucher.isValid()) {
                                 throw new RuntimeException("Voucher is invalid or expired");
                         }
 
-                        // 2. Validate Usage Limit Per User
                         long userUsage = orderRepository.countByUser_IdAndVoucherCode(userId, voucher.getCode());
                         if (voucher.getUsageLimitPerUser() != null && userUsage >= voucher.getUsageLimitPerUser()) {
                                 throw new RuntimeException("You have reached the usage limit for this voucher");
                         }
 
-                        // 3. Calculate eligible amount based on Categories
                         double eligibleAmount = 0.0;
                         if (voucher.getApplicableCategoryIds() != null
                                         && !voucher.getApplicableCategoryIds().isBlank()) {
                                 String[] catIdsToCheck = voucher.getApplicableCategoryIds().split(",");
-                                // FIXED: Use checkoutItems
+
                                 for (CartItem item : checkoutItems) {
                                         String itemCatId = String.valueOf(item.getProduct().getCategory().getId());
                                         boolean isMatch = false;
@@ -236,19 +225,12 @@ public class OrderServiceImpl implements OrderService {
                                         }
                                 }
                                 if (eligibleAmount == 0) {
-                                        // Voucher match no items.
-                                        // If it also didn't give free shipping, then it's useless for this order.
-                                        // We check if free shipping was applied? (hard to know here without boolean
-                                        // flag)
-                                        // Simple rule: If category mismatch -> Warning only (User might get Free Ship)
-                                        // throw new RuntimeException("This voucher is not applicable to any items in
-                                        // your cart");
+
                                 }
                         } else {
-                                eligibleAmount = itemsTotal; // Apply to all items
+                                eligibleAmount = itemsTotal;
                         }
 
-                        // 4. Validate Min Order Amount & Calculate Discount
                         if (eligibleAmount > 0) {
                                 if (voucher.getMinOrderAmount() != null
                                                 && eligibleAmount < voucher.getMinOrderAmount()) {
@@ -262,19 +244,18 @@ public class OrderServiceImpl implements OrderService {
                                 // Nếu 2 user checkout cùng lúc, chỉ 1 người được dùng voucher
                                 int updated = voucherRepository.incrementUsedCount(voucher.getId());
                                 if (updated == 0) {
-                                    throw new RuntimeException("Voucher vừa hết lượt sử dụng. Vui lòng thử voucher khác!");
+                                        throw new RuntimeException(
+                                                        "Voucher vừa hết lượt sử dụng. Vui lòng thử voucher khác!");
                                 }
                         } else {
-                                // If eligibleAmount is 0 but we are here, it means voucher valid but no product
-                                // match.
-                                // If it gave free shipping, we should still record usage and save voucherCode?
-                                // Yes, if Free Shipping was applied.
+
                                 if (Boolean.TRUE.equals(voucher.getFreeShipping())) {
                                         voucherCode = voucher.getCode();
                                         // FIX Race Condition: Dùng Atomic SQL UPDATE
                                         int updatedFreeShip = voucherRepository.incrementUsedCount(voucher.getId());
                                         if (updatedFreeShip == 0) {
-                                            throw new RuntimeException("Voucher vừa hết lượt sử dụng. Vui lòng thử voucher khác!");
+                                                throw new RuntimeException(
+                                                                "Voucher vừa hết lượt sử dụng. Vui lòng thử voucher khác!");
                                         }
                                 } else {
                                         throw new RuntimeException(
@@ -288,8 +269,6 @@ public class OrderServiceImpl implements OrderService {
                 double totalAmount = Math.max(0.0, itemsTotal + shippingFee - discountAmount);
 
                 LocalDateTime now = LocalDateTime.now();
-
-                // PaymentMethod pm already parsed above
 
                 Order order = Order.builder()
                                 .user(user)
@@ -308,7 +287,6 @@ public class OrderServiceImpl implements OrderService {
                                 .items(new ArrayList<>())
                                 .build();
 
-                // map cart_items -> order_items (snapshot) & decrease stock
                 for (CartItem ci : checkoutItems) {
                         Product p = ci.getProduct();
                         ProductVariant v = ci.getVariant();
@@ -348,12 +326,13 @@ public class OrderServiceImpl implements OrderService {
                 log.info("Order created successfully: orderId={}, userId={}, totalAmount={}",
                                 savedOrder.getId(), userId, totalAmount);
 
-                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, savedOrder, null, OrderStatus.PENDING));
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, savedOrder, null,
+                                OrderStatus.PENDING));
 
-                orderStatusHistoryRepository.save(OrderStatusHistory.systemChange(savedOrder, OrderStatus.PENDING, OrderStatus.PENDING, "Order placed"));
+                orderStatusHistoryRepository.save(OrderStatusHistory.systemChange(savedOrder, OrderStatus.PENDING,
+                                OrderStatus.PENDING, "Order placed"));
                 emailService.sendOrderConfirmation(user.getEmail(), savedOrder.getId(), totalAmount);
 
-                // FIXED: Partial Checkout - Only remove purchased items
                 cart.getItems().removeAll(checkoutItems);
 
                 if (cart.getItems().isEmpty()) {
@@ -378,7 +357,7 @@ public class OrderServiceImpl implements OrderService {
         public com.example.MyWeb.dto.order.OrderDetailResponse getMyOrderDetail(Long userId, Long orderId) {
                 Order order = orderRepository.findByIdAndUser_Id(orderId, userId)
                                 .orElseThrow(() -> new RuntimeException("Order not found"));
-                // ensure items loaded
+
                 order.getItems().size();
                 return toDetailResponse(order);
         }
@@ -389,7 +368,7 @@ public class OrderServiceImpl implements OrderService {
 
                 if (order.getItems() != null && !order.getItems().isEmpty()) {
                         itemCount = order.getItems().size();
-                        // Safe: kiểm tra null khi product có thể đã bị xóa
+
                         for (OrderItem item : order.getItems()) {
                                 try {
                                         if (item.getProduct() != null && item.getProduct().getThumbnailUrl() != null) {
@@ -397,7 +376,8 @@ public class OrderServiceImpl implements OrderService {
                                                 break;
                                         }
                                 } catch (Exception e) {
-                                        log.warn("Could not load product thumbnail for order {}: {}", order.getId(), e.getMessage());
+                                        log.warn("Could not load product thumbnail for order {}: {}", order.getId(),
+                                                        e.getMessage());
                                 }
                         }
                 }
@@ -415,8 +395,9 @@ public class OrderServiceImpl implements OrderService {
 
         private com.example.MyWeb.dto.order.OrderDetailResponse toDetailResponse(Order order) {
                 java.util.List<com.example.MyWeb.dto.order.OrderDetailResponse.TimelineStep> timeline = new ArrayList<>();
-                java.util.List<OrderStatusHistory> histories = orderStatusHistoryRepository.findByOrder_IdOrderByCreatedAtAsc(order.getId());
-                
+                java.util.List<OrderStatusHistory> histories = orderStatusHistoryRepository
+                                .findByOrder_IdOrderByCreatedAtAsc(order.getId());
+
                 if (histories.isEmpty()) {
                         timeline.add(com.example.MyWeb.dto.order.OrderDetailResponse.TimelineStep.builder()
                                         .status("Order Placed")
@@ -426,7 +407,8 @@ public class OrderServiceImpl implements OrderService {
                 } else {
                         for (OrderStatusHistory h : histories) {
                                 timeline.add(com.example.MyWeb.dto.order.OrderDetailResponse.TimelineStep.builder()
-                                                .status(h.getToStatus().name() + (h.getNote() != null ? " (" + h.getNote() + ")" : ""))
+                                                .status(h.getToStatus().name()
+                                                                + (h.getNote() != null ? " (" + h.getNote() + ")" : ""))
                                                 .timestamp(h.getCreatedAt())
                                                 .completed(true)
                                                 .build());
@@ -446,7 +428,8 @@ public class OrderServiceImpl implements OrderService {
                                                                 : "")
                                                 .quantity(item.getQuantity())
                                                 .price(item.getUnitPrice())
-                                                .hasReviewed(reviewRepository.existsByUser_IdAndOrderItem_Id(order.getUser().getId(), item.getId()))
+                                                .hasReviewed(reviewRepository.existsByUser_IdAndOrderItem_Id(
+                                                                order.getUser().getId(), item.getId()))
                                                 .build())
                                 .collect(java.util.stream.Collectors.toList());
 
@@ -481,7 +464,8 @@ public class OrderServiceImpl implements OrderService {
                                 .shippingAddress(addressDto)
                                 .paymentMethod(paymentDto)
                                 .deliveredAt(orderStatusHistoryRepository
-                                                .findFirstByOrder_IdAndToStatusOrderByCreatedAtDesc(order.getId(), OrderStatus.DELIVERED)
+                                                .findFirstByOrder_IdAndToStatusOrderByCreatedAtDesc(order.getId(),
+                                                                OrderStatus.DELIVERED)
                                                 .map(OrderStatusHistory::getCreatedAt)
                                                 .orElse(null))
                                 .build();
@@ -493,19 +477,17 @@ public class OrderServiceImpl implements OrderService {
                 Order order = orderRepository.findByIdAndUser_Id(orderId, userId)
                                 .orElseThrow(() -> new RuntimeException("Order not found"));
 
-                // Only allow cancel if order is PENDING or CONFIRMED
                 if (order.getStatus() != OrderStatus.PENDING && order.getStatus() != OrderStatus.CONFIRMED) {
                         throw new RuntimeException("Cannot cancel order with status: " + order.getStatus());
                 }
 
-                // FIXED: Return stock to inventory
                 for (OrderItem item : order.getItems()) {
                         Product product = item.getProduct();
                         ProductVariant variant = item.getVariant();
                         int quantity = item.getQuantity();
 
                         if (variant != null) {
-                                // Return variant stock
+
                                 Integer currentStock = variant.getStock() != null ? variant.getStock() : 0;
                                 variant.setStock(currentStock + quantity);
                                 productVariantRepository.save(variant);
@@ -513,7 +495,7 @@ public class OrderServiceImpl implements OrderService {
                                 log.info("Returned variant stock on cancel: product={}, variant={}, quantity={}",
                                                 product.getId(), variant.getId(), quantity);
                         } else {
-                                // Use StockService to return product stock
+
                                 stockService.increaseStock(product.getId(), quantity);
                         }
                 }
@@ -523,8 +505,10 @@ public class OrderServiceImpl implements OrderService {
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
 
-                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus, OrderStatus.CANCELED, "CUSTOMER", "User canceled order"));
-                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, oldStatus, OrderStatus.CANCELED));
+                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus, OrderStatus.CANCELED,
+                                "CUSTOMER", "User canceled order"));
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, oldStatus,
+                                OrderStatus.CANCELED));
                 emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, "CANCELED");
 
                 log.info("Order cancelled and stock returned: orderId={}, userId={}", orderId, userId);
@@ -538,48 +522,46 @@ public class OrderServiceImpl implements OrderService {
                 Order order = orderRepository.findByIdAndUser_Id(orderId, userId)
                                 .orElseThrow(() -> new RuntimeException("Order not found"));
 
-                // Only allow return if order is DELIVERED
                 if (order.getStatus() != OrderStatus.DELIVERED) {
                         throw new RuntimeException("Cannot request return for order with status: " + order.getStatus());
                 }
 
                 // Chinh sach: Toi da 7 ngay sau giao hang thi khong duoc tra hang
                 // Lay thoi diem giao hang tu order_status_history
-                java.util.Optional<OrderStatusHistory> deliveredHistory =
-                        orderStatusHistoryRepository.findFirstByOrder_IdAndToStatusOrderByCreatedAtDesc(
-                                orderId, OrderStatus.DELIVERED);
+                java.util.Optional<OrderStatusHistory> deliveredHistory = orderStatusHistoryRepository
+                                .findFirstByOrder_IdAndToStatusOrderByCreatedAtDesc(
+                                                orderId, OrderStatus.DELIVERED);
 
                 // Fail-safe: neu khong tim thay record DELIVERED -> khong cho phep tra hang
-                // (tranh truong hop don cu khong co history bi bypass validation)
+
                 if (deliveredHistory.isEmpty()) {
-                        log.warn("Cannot find DELIVERED history for orderId={}. Blocking return request as safety measure.", orderId);
-                        throw new RuntimeException("Không thể xác nhận thời điểm giao hàng. Vui lòng liên hệ hỗ trợ để yêu cầu trả hàng.");
+                        log.warn("Cannot find DELIVERED history for orderId={}. Blocking return request as safety measure.",
+                                        orderId);
+                        throw new RuntimeException(
+                                        "Không thể xác nhận thời điểm giao hàng. Vui lòng liên hệ hỗ trợ để yêu cầu trả hàng.");
                 }
 
                 LocalDateTime deliveredAt = deliveredHistory.get().getCreatedAt();
                 long daysSinceDelivered = java.time.temporal.ChronoUnit.DAYS.between(deliveredAt, LocalDateTime.now());
                 if (daysSinceDelivered > 7) {
                         throw new RuntimeException(
-                                "Đã quá 7 ngày kể từ ngày giao hàng (" + daysSinceDelivered + " ngày). Chính sách trả hàng chỉ áp dụng trong 7 ngày.");
+                                        "Đã quá 7 ngày kể từ ngày giao hàng (" + daysSinceDelivered
+                                                        + " ngày). Chính sách trả hàng chỉ áp dụng trong 7 ngày.");
                 }
 
                 OrderStatus oldStatus = order.getStatus();
                 order.setStatus(OrderStatus.RETURN_REQUESTED);
-                // Note: We might want to append the reason to the order note or a separate
-                // field
-                // For now, appending to note
+
                 String currentNote = order.getNote() != null ? order.getNote() : "";
                 order.setNote(currentNote + " [Return Reason: " + reason + "]");
 
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
-                
-                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus, OrderStatus.RETURN_REQUESTED, "CUSTOMER", "User requested return: " + reason));
+
+                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus,
+                                OrderStatus.RETURN_REQUESTED, "CUSTOMER", "User requested return: " + reason));
 
                 log.info("Return requested: orderId={}, userId={}, reason={}", orderId, userId, reason);
-
-                // NOTE: Stock will be returned after admin approves the return request
-                // This should be handled in AdminOrderService.approveReturn()
 
                 return toOrderDto(order);
         }
@@ -587,12 +569,11 @@ public class OrderServiceImpl implements OrderService {
         @Override
         @Transactional
         public com.example.MyWeb.dto.cart.CartResponse reorder(Long userId, Long orderId) {
-                // Get the old order
+
                 Order oldOrder = orderRepository.findByIdAndUser_Id(orderId, userId)
                                 .orElseThrow(() -> new RuntimeException(
                                                 "Order not found or you don't have permission"));
 
-                // Get user's active cart (or create new one)
                 Cart cart = cartRepository.findByUser_IdAndStatus(userId, CartStatus.ACTIVE)
                                 .orElseGet(() -> {
                                         User user = userRepository.findById(userId)
@@ -608,13 +589,11 @@ public class OrderServiceImpl implements OrderService {
                                         return cartRepository.save(newCart);
                                 });
 
-                // Add all items from old order to cart
                 for (OrderItem orderItem : oldOrder.getItems()) {
                         Product product = orderItem.getProduct();
                         ProductVariant variant = orderItem.getVariant();
                         int quantity = orderItem.getQuantity();
 
-                        // Validate stock availability
                         if (variant != null) {
                                 Integer variantStock = variant.getStock() != null ? variant.getStock() : 0;
                                 if (variantStock < quantity) {
@@ -633,12 +612,10 @@ public class OrderServiceImpl implements OrderService {
                                 }
                         }
 
-                        // Calculate price
                         double unitPrice = variant != null && variant.getPrice() != null
                                         ? variant.getPrice()
                                         : product.getBasePrice();
 
-                        // Check if item already exists in cart
                         CartItem existingItem = null;
                         if (cart.getItems() != null) {
                                 for (CartItem ci : cart.getItems()) {
@@ -750,8 +727,9 @@ public class OrderServiceImpl implements OrderService {
                 order.setStatus(OrderStatus.RETURNED);
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
-                
-                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus, OrderStatus.RETURNED, "ADMIN", "Return approved"));
+
+                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, oldStatus, OrderStatus.RETURNED,
+                                "ADMIN", "Return approved"));
                 emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, "RETURNED");
 
                 log.info("Order return approved and stock returned: orderId={}", orderId);
@@ -778,17 +756,18 @@ public class OrderServiceImpl implements OrderService {
                 // ================================================================
                 if (!isValidTransition(currentStatus, targetStatus)) {
                         throw new RuntimeException(
-                                "Invalid status transition: " + currentStatus + " -> " + targetStatus
-                                + ". Allowed: " + getAllowedTransitions(currentStatus));
+                                        "Invalid status transition: " + currentStatus + " -> " + targetStatus
+                                                        + ". Allowed: " + getAllowedTransitions(currentStatus));
                 }
 
                 // ================================================================
                 // Prevent confirming UNPAID online payment orders
                 // ================================================================
-                if (targetStatus == OrderStatus.CONFIRMED && 
-                    order.getPaymentMethod() != PaymentMethod.COD && 
-                    order.getPaymentStatus() != PaymentStatus.PAID) {
-                        throw new RuntimeException("Cannot confirm an online payment order that has not been paid yet.");
+                if (targetStatus == OrderStatus.CONFIRMED &&
+                                order.getPaymentMethod() != PaymentMethod.COD &&
+                                order.getPaymentStatus() != PaymentStatus.PAID) {
+                        throw new RuntimeException(
+                                        "Cannot confirm an online payment order that has not been paid yet.");
                 }
 
                 // ================================================================
@@ -811,25 +790,30 @@ public class OrderServiceImpl implements OrderService {
                 // ================================================================
                 // Cập nhật PaymentStatus tự động theo chuẩn e-commerce (Shopee)
                 // ================================================================
-                // 1. Nếu giao hàng thành công (DELIVERED) và là đơn COD -> Đánh dấu đã thanh toán
+                // 1. Nếu giao hàng thành công (DELIVERED) và là đơn COD -> Đánh dấu đã thanh
+                // toán
                 if (targetStatus == OrderStatus.DELIVERED && order.getPaymentMethod() == PaymentMethod.COD) {
                         order.setPaymentStatus(PaymentStatus.PAID);
                         log.info("Order {} delivered via COD. PaymentStatus automatically updated to PAID.", orderId);
                 }
 
-                // 2. Nếu đơn bị Hủy (CANCELED) nhưng khách ĐÃ THANH TOÁN (VNPAY) -> Đổi sang REFUNDED để kế toán biết đường hoàn tiền
+                // 2. Nếu đơn bị Hủy (CANCELED) nhưng khách ĐÃ THANH TOÁN (VNPAY) -> Đổi sang
+                // REFUNDED để hoàn tiền
                 if (targetStatus == OrderStatus.CANCELED && order.getPaymentStatus() == PaymentStatus.PAID) {
                         order.setPaymentStatus(PaymentStatus.REFUNDED);
-                        log.info("Paid order {} was canceled. PaymentStatus automatically updated to REFUNDED.", orderId);
+                        log.info("Paid order {} was canceled. PaymentStatus automatically updated to REFUNDED.",
+                                        orderId);
                 }
 
                 order.setStatus(targetStatus);
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
-                
-                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, currentStatus, targetStatus));
 
-                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, currentStatus, targetStatus, "ADMIN", "Status updated"));
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order,
+                                currentStatus, targetStatus));
+
+                orderStatusHistoryRepository.save(OrderStatusHistory.adminChange(order, currentStatus, targetStatus,
+                                "ADMIN", "Status updated"));
                 emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, targetStatus.name());
                 log.info("Order status updated: orderId={}, {} -> {}", orderId, currentStatus, targetStatus);
                 return toOrderDto(order);
@@ -838,30 +822,31 @@ public class OrderServiceImpl implements OrderService {
         /**
          * State Machine: Các chuyển trạng thái hợp lệ
          * Client: PENDING -> CANCELED, DELIVERED -> RETURN_REQUESTED
-         * Admin: PENDING -> CONFIRMED -> PACKED -> SHIPPED -> DELIVERED -> RETURNED -> REFUNDED
+         * Admin: PENDING -> CONFIRMED -> PACKED -> SHIPPED -> DELIVERED -> RETURNED ->
+         * REFUNDED
          */
         private boolean isValidTransition(OrderStatus from, OrderStatus to) {
                 return switch (from) {
-                        case PENDING          -> to == OrderStatus.CONFIRMED || to == OrderStatus.CANCELED;
-                        case CONFIRMED        -> to == OrderStatus.PACKED    || to == OrderStatus.CANCELED;
-                        case PACKED           -> to == OrderStatus.SHIPPED   || to == OrderStatus.CANCELED;
-                        case SHIPPED          -> to == OrderStatus.DELIVERED;
-                        case DELIVERED        -> to == OrderStatus.RETURN_REQUESTED || to == OrderStatus.REFUNDED;
-                        case RETURN_REQUESTED -> to == OrderStatus.RETURNED  || to == OrderStatus.DELIVERED;
-                        case RETURNED         -> to == OrderStatus.REFUNDED;
+                        case PENDING -> to == OrderStatus.CONFIRMED || to == OrderStatus.CANCELED;
+                        case CONFIRMED -> to == OrderStatus.PACKED || to == OrderStatus.CANCELED;
+                        case PACKED -> to == OrderStatus.SHIPPED || to == OrderStatus.CANCELED;
+                        case SHIPPED -> to == OrderStatus.DELIVERED;
+                        case DELIVERED -> to == OrderStatus.RETURN_REQUESTED || to == OrderStatus.REFUNDED;
+                        case RETURN_REQUESTED -> to == OrderStatus.RETURNED || to == OrderStatus.DELIVERED;
+                        case RETURNED -> to == OrderStatus.REFUNDED;
                         case CANCELED, REFUNDED -> false;
                 };
         }
 
         private String getAllowedTransitions(OrderStatus from) {
                 return switch (from) {
-                        case PENDING          -> "CONFIRMED, CANCELED";
-                        case CONFIRMED        -> "PACKED, CANCELED";
-                        case PACKED           -> "SHIPPED, CANCELED";
-                        case SHIPPED          -> "DELIVERED";
-                        case DELIVERED        -> "RETURN_REQUESTED, REFUNDED";
+                        case PENDING -> "CONFIRMED, CANCELED";
+                        case CONFIRMED -> "PACKED, CANCELED";
+                        case PACKED -> "SHIPPED, CANCELED";
+                        case SHIPPED -> "DELIVERED";
+                        case DELIVERED -> "RETURN_REQUESTED, REFUNDED";
                         case RETURN_REQUESTED -> "RETURNED, DELIVERED";
-                        case RETURNED         -> "REFUNDED";
+                        case RETURNED -> "REFUNDED";
                         case CANCELED, REFUNDED -> "none (terminal state)";
                 };
         }
@@ -895,12 +880,15 @@ public class OrderServiceImpl implements OrderService {
                 order.setUpdatedAt(LocalDateTime.now());
                 orderRepository.save(order);
 
-                orderStatusHistoryRepository.save(OrderStatusHistory.systemChange(order, oldStatus, OrderStatus.CANCELED, reason));
-                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, oldStatus, OrderStatus.CANCELED));
-                
+                orderStatusHistoryRepository
+                                .save(OrderStatusHistory.systemChange(order, oldStatus, OrderStatus.CANCELED, reason));
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, oldStatus,
+                                OrderStatus.CANCELED));
+
                 log.info("System cancelled order: orderId={}, reason={}", orderId, reason);
                 try {
-                        emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId, "CANCELED (" + reason + ")");
+                        emailService.sendOrderStatusUpdate(order.getUser().getEmail(), orderId,
+                                        "CANCELED (" + reason + ")");
                 } catch (Exception e) {
                         log.error("Failed to send cancellation email for order {}", orderId);
                 }

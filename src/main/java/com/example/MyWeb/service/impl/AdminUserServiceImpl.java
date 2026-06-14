@@ -71,7 +71,6 @@ public class AdminUserServiceImpl implements AdminUserService {
                                         .findAllByOrderByCreatedAtDesc(pageable);
                 }
 
-                // L12 FIX: Batch load toàn bộ CustomerProfile trong 1 query thay vì N query
                 List<Long> userIds = userPage.getContent().stream()
                                 .map(User::getId)
                                 .collect(Collectors.toList());
@@ -86,8 +85,6 @@ public class AdminUserServiceImpl implements AdminUserService {
                 return userPage.map(user -> toListItemDtoBatch(user, profileMap.get(user.getId())));
         }
 
-
-        // L12 FIX: Nhận profile đã được load sẵn từ batch — không gọi thêm query
         private AdminUserListItemResponse toListItemDtoBatch(User user, CustomerProfile profile) {
 
                 Set<String> roleCodes = user.getRoles()

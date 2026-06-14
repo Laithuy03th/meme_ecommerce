@@ -6,13 +6,6 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
-/**
- * Entity to track order status changes history
- * Provides audit trail for all order status transitions
- * 
- * @author Senior Software Engineer
- * @version 1.0
- */
 @Entity
 @Table(name = "order_status_history", indexes = {
         @Index(name = "idx_order_id", columnList = "order_id"),
@@ -60,9 +53,6 @@ public class OrderStatusHistory {
         }
     }
 
-    /**
-     * Create a system-generated status change record
-     */
     public static OrderStatusHistory systemChange(Order order, OrderStatus from, OrderStatus to, String note) {
         return OrderStatusHistory.builder()
                 .order(order)
@@ -74,9 +64,6 @@ public class OrderStatusHistory {
                 .build();
     }
 
-    /**
-     * Create an admin-generated status change record
-     */
     public static OrderStatusHistory adminChange(Order order, OrderStatus from, OrderStatus to, String admin,
             String note) {
         return OrderStatusHistory.builder()

@@ -15,11 +15,11 @@ public class CategoryRequest {
     @NotBlank(message = "Category name is required")
     private String name;
 
-    private String slug; // Optional, will auto-generate if empty
+    private String slug;
 
     private String description;
 
-    private Long parentId; // null = root category
+    private Long parentId;
 
     private Integer sortOrder;
 

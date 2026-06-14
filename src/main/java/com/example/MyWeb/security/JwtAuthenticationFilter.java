@@ -36,7 +36,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             System.out.println("JwtAuthenticationFilter: Token found. Valid? " + isValid);
 
             if (isValid) {
-                // LỖ HỔNG: Phải kiểm tra token có nằm trong Blacklist (đã logout) hay không!
+                // Phải kiểm tra token có nằm trong Blacklist (đã logout) hay không!
                 if (jwtBlacklistService.isBlacklisted(token)) {
                     System.out.println("JwtAuthenticationFilter: Token is blacklisted (logged out)");
                     filterChain.doFilter(request, response);
@@ -50,7 +50,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 System.out.println("JwtAuthenticationFilter: User loaded: " + userDetails.getUsername()
                         + ", Authorities: " + userDetails.getAuthorities());
 
-                // LỖ HỔNG: Phải chặn những user vừa bị khóa tài khoản bởi Admin
+                // Phải chặn những user vừa bị khóa tài khoản bởi Admin
                 if (!userDetails.isEnabled() || !userDetails.isAccountNonLocked()) {
                     System.out.println(
                             "JwtAuthenticationFilter: BANNED/DISABLED user attempted to access API -> Blocked");

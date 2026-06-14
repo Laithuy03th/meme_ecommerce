@@ -1,8 +1,5 @@
 package com.example.MyWeb.exception;
 
-/**
- * Exception thrown when product stock is insufficient
- */
 public class OutOfStockException extends RuntimeException {
 
     public OutOfStockException(String message) {

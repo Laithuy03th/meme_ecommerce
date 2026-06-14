@@ -21,14 +21,13 @@ public class ProductListItemResponse {
     private String categoryName;
     private String shortDesc;
 
-    // Enhanced fields for better UX (Shopee-level)
     private String brand;
     private Double averageRating;
     private Integer reviewCount;
     private Integer soldCount;
-    private String stockStatus; // "IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK"
+    private String stockStatus;
     private Boolean isFeatured;
-    private Integer discountPercent; // For future flash sale feature
+    private Integer discountPercent;
 
     private LocalDateTime createdAt;
 }

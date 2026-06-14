@@ -3,7 +3,9 @@ package com.example.MyWeb.listener;
 import com.example.MyWeb.event.OrderStatusChangedEvent;
 import com.example.MyWeb.model.Order;
 import com.example.MyWeb.model.enums.OrderStatus;
+import com.example.MyWeb.service.AdminNotificationService;
 import com.example.MyWeb.service.NotificationService;
+import com.example.MyWeb.model.enums.AdminNotificationType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Component;
 public class OrderNotificationListener {
 
     private final NotificationService notificationService;
+    private final AdminNotificationService adminNotificationService;
 
     @EventListener
     @Async
@@ -29,11 +32,19 @@ public class OrderNotificationListener {
 
         switch (newStatus) {
             case PENDING:
-                // Only trigger if it's a new order creation (old status is null or we pass it specifically)
                 if (event.getOldStatus() == null) {
                     title = "Đặt hàng thành công";
                     message = "Đơn hàng #" + order.getId() + " của bạn đã được đặt thành công.";
                     type = "order_created";
+
+                    adminNotificationService.createNotification(
+                            "Đơn hàng mới",
+                            "Khách hàng " + order.getUser().getEmail() + " vừa đặt đơn hàng #" + order.getId(),
+                            AdminNotificationType.ORDER_CREATED,
+                            "ORDER",
+                            order.getId(),
+                            "/orders/" + order.getId(),
+                            order.getUser().getEmail());
                 }
                 break;
             case CONFIRMED:
@@ -57,8 +68,6 @@ public class OrderNotificationListener {
                 type = "order_cancelled";
                 break;
             default:
-                // Other states like PACKED, RETURN_REQUESTED don't strictly need a user notification as per requirement,
-                // but we can add them later if needed.
                 return;
         }
 

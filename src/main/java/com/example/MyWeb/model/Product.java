@@ -19,11 +19,6 @@ public class Product {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /**
-     * Optimistic Locking - JPA tự động tăng version mỗi lần update.
-     * Nếu 2 transaction đọc cùng version=5, chỉ 1 transaction đầu tiên
-     * lưu được. Transaction thứ 2 sẽ nhận ObjectOptimisticLockingFailureException.
-     */
     @Version
     @Column(name = "version", nullable = false, columnDefinition = "bigint default 0")
     private Long version = 0L;

@@ -21,10 +21,6 @@ public class AdminCreateUserRequest {
     private String fullName;
     private String phone;
 
-    /**
-     * Danh sách role code, ví dụ: ["ADMIN"], ["CUSTOMER"], hoặc cả hai.
-     * Lưu ý khi map sang GrantedAuthority phải prefix ROLE_*
-     */
     @NotEmpty
     private Set<String> roles;
 }

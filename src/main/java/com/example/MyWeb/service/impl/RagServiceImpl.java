@@ -18,19 +18,17 @@ public class RagServiceImpl implements RagService {
     private final LlmService llmService;
     private final FaqDocumentRepository documentRepository;
 
-    // Ngưỡng cosine distance: 0 = giống hệt, 2 = hoàn toàn khác nhau.
-    // 1.2 đủ rộng cho tiếng Việt — câu hỏi thực tế thường có distance 0.2–0.6 với tài liệu liên quan.
     private static final double SIMILARITY_THRESHOLD = 1.2;
-    // Dimension thực tế của api trả về = 3072
+
     private static final int EXPECTED_EMBEDDING_DIM = 3072;
 
     @Override
     public List<FaqDocument> retrieveRelevantContext(String query, int topK) {
         log.info("RAG: Generating embedding for query: '{}'", query);
-        
+
         // 1. Tạo vector cho câu hỏi (Dùng Gemini LLM)
         float[] queryVector = llmService.embed(query);
-        
+
         // Kiểm tra embedding hợp lệ và đúng dimension
         if (queryVector == null || queryVector.length == 0) {
             log.warn("RAG: Query embedding failed (null/empty). Returning empty context.");
@@ -38,8 +36,8 @@ public class RagServiceImpl implements RagService {
         }
         if (queryVector.length != EXPECTED_EMBEDDING_DIM) {
             log.error("RAG: Embedding dimension mismatch! Got {} but expected {}. " +
-                      "Check gemini embedding model or ALTER TABLE faq_documents ALTER COLUMN embedding TYPE vector({});",
-                      queryVector.length, EXPECTED_EMBEDDING_DIM, queryVector.length);
+                    "Check gemini embedding model or ALTER TABLE faq_documents ALTER COLUMN embedding TYPE vector({});",
+                    queryVector.length, EXPECTED_EMBEDDING_DIM, queryVector.length);
             return List.of();
         }
 
@@ -52,14 +50,14 @@ public class RagServiceImpl implements RagService {
         try {
             List<FaqDocument> results = documentRepository.findTopSimilarDocuments(
                     vectorString, topK, SIMILARITY_THRESHOLD);
-            
+
             if (results.isEmpty()) {
                 log.warn("RAG: No documents within threshold {}. Trying without threshold...", SIMILARITY_THRESHOLD);
                 // Fallback: lấy top K không cần threshold để xem khoảng cách thực tế
                 List<FaqDocument> all = documentRepository.findTopSimilarDocuments(vectorString, topK, 2.0);
                 if (!all.isEmpty()) {
                     log.warn("RAG: Best match without threshold: '{}' (distance quá xa). " +
-                             "Xem xét tăng SIMILARITY_THRESHOLD.", all.get(0).getTitle());
+                            "Xem xét tăng SIMILARITY_THRESHOLD.", all.get(0).getTitle());
                 }
             } else {
                 log.info("RAG: Found {} relevant doc(s): {}",

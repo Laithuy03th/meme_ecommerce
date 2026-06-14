@@ -28,9 +28,8 @@ public class VoucherRequest {
     private LocalDateTime endDate;
     private Integer usageLimit;
 
-    // New fields for enhanced voucher logic
     private Integer usageLimitPerUser;
     private Boolean freeShipping;
     private Double maxShippingDiscount;
-    private String applicableCategoryIds; // "1,2,3"
+    private String applicableCategoryIds;
 }

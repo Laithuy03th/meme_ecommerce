@@ -35,7 +35,7 @@ public class WishlistServiceImpl implements WishlistService {
     @Override
     @Transactional
     public WishlistResponse addToWishlist(Long userId, Long productId) {
-        // Check if already exists
+
         if (wishlistRepository.existsByUser_IdAndProduct_Id(userId, productId)) {
             throw new RuntimeException("Product already in wishlist");
         }

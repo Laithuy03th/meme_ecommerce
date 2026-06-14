@@ -21,8 +21,6 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // Serve uploaded files from "uploads" directory
-        // URL: http://localhost:8080/uploads/filename.jpg
         registry.addResourceHandler("/uploads/**")
                 .addResourceLocations("file:uploads/");
     }

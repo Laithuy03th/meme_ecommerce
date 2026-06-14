@@ -59,13 +59,9 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     private Long calculateLowStockProducts() {
-        int lowStockThreshold = 10; // Products/variants with stock <= 10
-
-        // Count simple products with low stock
+        int lowStockThreshold = 10;
         long lowStockSimpleProducts = productRepository.countByStockQuantityLessThanEqual(lowStockThreshold);
 
-        // TODO: Add variant low stock count when ProductVariantRepository has the query
-        // For now, return simple products count
         return lowStockSimpleProducts;
     }
 

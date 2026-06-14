@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Triển khai LlmService sử dụng Google Gemini API (gemini-flash-latest).
+ * Triển khai LlmService sử dụng Google Gemini API
  *
  * Tài liệu API: https://ai.google.dev/api/generate-content
  * Lấy API key miễn phí: https://aistudio.google.com/app/apikey
@@ -205,17 +205,6 @@ public class GeminiLlmService implements LlmService {
         }
     }
 
-    // =========================================================================
-    // Private helpers
-    // =========================================================================
-
-    /**
-     * Gọi Gemini API với prompt thuần text.
-     *
-     * @param prompt            Prompt đầy đủ
-     * @param allowLongResponse true = cho phép response dài (generate), false = cần
-     *                          ngắn (classify)
-     */
     private String callGeminiAPI(String prompt, int maxTokens, boolean expectJson) {
         String url = String.format("%s/%s:generateContent?key=%s", apiBaseUrl, chatModel, apiKey);
 
@@ -264,7 +253,7 @@ public class GeminiLlmService implements LlmService {
             return getFallbackResponse();
         }
 
-        // Retry with exponential backoff on 429 (rate limit) - auto retry up to 2 times
+        // 429 (rate limit)
         int[] retryDelaysMs = { 2000, 5000 };
         for (int attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
             Request currentRequest = new Request.Builder()

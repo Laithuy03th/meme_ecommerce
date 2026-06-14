@@ -36,8 +36,6 @@ public class ProductServiceImpl implements ProductService {
         private final ProductRepository productRepository;
         private final ObjectMapper objectMapper;
 
-        // ================== LIST ==================
-
         private ProductListItemResponse toListItem(Product p) {
                 String stockStatus = calculateStockStatus(p.getStockQuantity());
 
@@ -51,7 +49,6 @@ public class ProductServiceImpl implements ProductService {
                                 .categoryName(p.getCategory().getName())
                                 .shortDesc(p.getShortDesc())
 
-                                // Enhanced fields
                                 .brand(p.getBrand())
                                 .averageRating(p.getAverageRating())
                                 .reviewCount(p.getReviewCount() != null ? p.getReviewCount() : 0)
@@ -78,7 +75,6 @@ public class ProductServiceImpl implements ProductService {
                 String kw = (keyword == null || keyword.trim().isEmpty()) ? null : keyword.trim().toLowerCase();
                 String catSlug = (categorySlug == null || categorySlug.trim().isEmpty()) ? null : categorySlug.trim();
 
-                // Sort field phải khớp với tên field trong Java entity (không phải DB column)
                 Sort sort = switch (sortBy) {
                         case "oldest" -> Sort.by("createdAt").ascending();
                         case "priceAsc" -> Sort.by("basePrice").ascending();
@@ -92,16 +88,12 @@ public class ProductServiceImpl implements ProductService {
 
                 Pageable pageable = PageRequest.of(page, size, sort);
 
-                // Dùng Specification thay vì native query
-                // Hỗ trợ search 2 tầng: product + variant (color, size, sku)
                 Page<Product> productPage = productRepository.findAll(
                                 ProductSpecifications.search(kw, catSlug, minPrice, maxPrice, brand, minRating),
                                 pageable);
 
                 return productPage.map(this::toListItem);
         }
-
-        // ================== DETAIL ==================
 
         private ProductImageResponse toImageDto(ProductImage img) {
                 return ProductImageResponse.builder()
@@ -126,9 +118,6 @@ public class ProductServiceImpl implements ProductService {
                                 .build();
         }
 
-        /**
-         * Calculate stock status for display
-         */
         private String calculateStockStatus(Integer stock) {
                 if (stock == null || stock == 0) {
                         return "OUT_OF_STOCK";
@@ -139,10 +128,6 @@ public class ProductServiceImpl implements ProductService {
                 }
         }
 
-        /**
-         * Parse JSON string specifications thành Map<String, String>.
-         * Trả về null nếu JSON null/rỗng/lỗi.
-         */
         @SuppressWarnings("unchecked")
         private Map<String, String> parseSpecifications(String json) {
                 if (json == null || json.isBlank())
@@ -156,9 +141,6 @@ public class ProductServiceImpl implements ProductService {
                 }
         }
 
-        /**
-         * Convert Map<String, String> thành JSON string để lưu DB.
-         */
         private String specsToJson(Map<String, String> specs) {
                 if (specs == null || specs.isEmpty())
                         return null;
@@ -170,9 +152,8 @@ public class ProductServiceImpl implements ProductService {
                 }
         }
 
-        // UPDATED: Enhanced with all new fields
         private ProductDetailResponse toDetail(Product p) {
-                // Sort images theo sortOrder rồi id
+
                 List<ProductImageResponse> imageDtos = p.getImages() == null ? List.of()
                                 : p.getImages()
                                                 .stream()
@@ -184,7 +165,6 @@ public class ProductServiceImpl implements ProductService {
                                                 .map(this::toImageDto)
                                                 .toList();
 
-                // Lọc variants ACTIVE (nếu chưa dùng thì list rỗng)
                 List<ProductVariantResponse> variantDtos = p.getVariants() == null ? List.of()
                                 : p.getVariants()
                                                 .stream()
@@ -193,7 +173,6 @@ public class ProductServiceImpl implements ProductService {
                                                 .map(v -> toVariantDto(v, p.getBasePrice()))
                                                 .toList();
 
-                // Calculate stock status
                 String stockStatus = calculateStockStatus(p.getStockQuantity());
 
                 return ProductDetailResponse.builder()
@@ -217,7 +196,6 @@ public class ProductServiceImpl implements ProductService {
                                 .stockQuantity(p.getStockQuantity())
                                 .stockStatus(stockStatus)
 
-                                // Analytics & Social Proof
                                 .averageRating(p.getAverageRating())
                                 .reviewCount(p.getReviewCount() != null ? p.getReviewCount() : 0)
                                 .soldCount(p.getSoldCount() != null ? p.getSoldCount() : 0)
@@ -239,12 +217,11 @@ public class ProductServiceImpl implements ProductService {
         }
 
         @Override
-        @Transactional // UPDATED: Removed readOnly to enable view tracking
+        @Transactional
         public ProductDetailResponse getProductDetailBySlug(String slug) {
                 Product p = productRepository.findBySlugAndStatus(slug, "ACTIVE")
                                 .orElseThrow(() -> new RuntimeException("Product not found"));
 
-                // Track view count
                 Integer currentViews = p.getViewCount() != null ? p.getViewCount() : 0;
                 p.setViewCount(currentViews + 1);
                 p.setUpdatedAt(LocalDateTime.now());
@@ -254,12 +231,11 @@ public class ProductServiceImpl implements ProductService {
         }
 
         @Override
-        @Transactional // UPDATED: Removed readOnly to enable view tracking
+        @Transactional
         public ProductDetailResponse getProductDetailById(Long id) {
                 Product p = productRepository.findByIdAndStatus(id, "ACTIVE")
                                 .orElseThrow(() -> new RuntimeException("Product not found"));
 
-                // Track view count
                 Integer currentViews = p.getViewCount() != null ? p.getViewCount() : 0;
                 p.setViewCount(currentViews + 1);
                 p.setUpdatedAt(LocalDateTime.now());
@@ -312,7 +288,7 @@ public class ProductServiceImpl implements ProductService {
 
         @Override
         public List<SearchKeywordSuggestion> getPopularSearchKeywords() {
-                // Return curated list of popular search keywords organized by category
+
                 return Arrays.asList(
                                 // Fashion (Váy, Áo)
                                 new SearchKeywordSuggestion("Váy", "Fashion", "fashion"),

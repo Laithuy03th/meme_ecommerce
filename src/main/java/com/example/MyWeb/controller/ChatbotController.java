@@ -8,11 +8,6 @@ import com.example.MyWeb.service.ChatbotService;
 import com.example.MyWeb.service.ConversationContextService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.ExampleObject;
-import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +18,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -35,10 +29,6 @@ public class ChatbotController {
 
         private final ChatbotService chatbotService;
         private final ConversationContextService conversationContextService;
-
-        // =========================================================================
-        // Core: Send Message
-        // =========================================================================
 
         @PostMapping("/message")
         @Operation(summary = "Gửi tin nhắn đến chatbot")
@@ -60,27 +50,17 @@ public class ChatbotController {
                 return ResponseEntity.ok(response);
         }
 
-        // =========================================================================
-        // History: Session List & Messages
-        // =========================================================================
-
         /**
          * GET /api/chatbot/history/{sessionId}
          * Lấy toàn bộ tin nhắn trong một session cụ thể.
          */
         @GetMapping("/history/{sessionId}")
-        @Operation(
-                summary = "Lấy lịch sử chat của một session",
-                description = "Trả về danh sách tin nhắn user + bot trong session theo thứ tự thời gian.")
+        @Operation(summary = "Lấy lịch sử chat của một session", description = "Trả về danh sách tin nhắn user + bot trong session theo thứ tự thời gian.")
         public ResponseEntity<List<ChatHistoryItemResponse>> getChatHistory(
                         @Parameter(description = "Session ID (UUID)") @PathVariable String sessionId) {
                 List<ChatHistoryItemResponse> history = chatbotService.getChatHistory(sessionId);
                 return ResponseEntity.ok(history);
         }
-
-        // =========================================================================
-        // Utilities
-        // =========================================================================
 
         @GetMapping("/suggestions")
         @Operation(summary = "Lấy gợi ý câu hỏi nhanh")
@@ -95,10 +75,6 @@ public class ChatbotController {
                 return ResponseEntity.ok("Knowledge base initialized successfully");
         }
 
-        // =========================================================================
-        // Helpers
-        // =========================================================================
-
         private Long extractUserId() {
                 Authentication auth = SecurityContextHolder.getContext().getAuthentication();
                 if (auth != null && auth.isAuthenticated() && !auth.getPrincipal().equals("anonymousUser")) {
@@ -106,7 +82,8 @@ public class ChatbotController {
                                 if (auth.getPrincipal() instanceof CustomUserDetails userDetails) {
                                         return userDetails.getId();
                                 }
-                        } catch (Exception ignored) {}
+                        } catch (Exception ignored) {
+                        }
                 }
                 return null;
         }

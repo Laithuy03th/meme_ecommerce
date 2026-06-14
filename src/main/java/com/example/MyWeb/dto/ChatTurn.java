@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 public class ChatTurn {
 
     /**
-     * Vai trò: "user" hoặc "model" (Gemini dùng "model" thay vì "assistant")
+     * Vai trò: "user" hoặc "model"
      */
     private String role;
 
@@ -27,12 +27,11 @@ public class ChatTurn {
 
     /**
      * Intent đã phân loại (product, policy, order, greeting, other)
-     * Null nếu là lượt user
      */
     private String intent;
 
     /**
-     * Timestamp tính theo epoch millis
+     * Timestamp
      */
     private long timestamp;
 }

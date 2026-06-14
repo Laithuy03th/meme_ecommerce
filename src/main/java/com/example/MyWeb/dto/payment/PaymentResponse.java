@@ -15,7 +15,7 @@ public class PaymentResponse {
 
     private String paymentStatus;
 
-    private String paymentUrl; // URL để redirect đến cổng thanh toán (VNPay, Momo...)
+    private String paymentUrl; // URL để redirect đến cổng thanh toán (VNPay)
 
     private Double amount;
 

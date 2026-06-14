@@ -16,7 +16,7 @@ public interface PaymentService {
     PaymentResponse initiatePayment(Long userId, PaymentRequest request);
 
     /**
-     * Xử lý callback từ payment gateway (VNPay, Momo...)
+     * Xử lý callback từ payment gateway (VNPay)
      * 
      * @param orderId      ID đơn hàng
      * @param callbackData Dữ liệu từ payment gateway

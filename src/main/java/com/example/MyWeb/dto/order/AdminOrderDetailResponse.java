@@ -26,7 +26,7 @@ public class AdminOrderDetailResponse {
     private Long userId;
     private String userEmail;
 
-    // Shipping info (từ Address snapshot)
+    // Shipping info
     private String shippingFullName;
     private String shippingPhone;
     private String shippingAddressLine1;

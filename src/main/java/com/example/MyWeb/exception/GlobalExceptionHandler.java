@@ -42,7 +42,7 @@ public class GlobalExceptionHandler {
 
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                ex.getMessage(), // Trong môi trường Prod nên ẩn message chi tiết
+                ex.getMessage(),
                 LocalDateTime.now());
         return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
     }

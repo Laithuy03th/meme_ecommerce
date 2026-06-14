@@ -19,8 +19,7 @@ public class ProductController {
 
     private final ProductService productService;
 
-    /**
-     * Ví dụ gọi:
+    /*
      * GET /api/v1/products?page=0&size=20&sortBy=newest
      * GET /api/v1/products?category=dresses&page=0&size=20
      * GET /api/v1/products?keyword=hoodie&sortBy=priceAsc
@@ -43,7 +42,7 @@ public class ProductController {
     }
 
     /**
-     * Search suggestions for autocomplete
+     * Search suggestions
      * GET /api/v1/products/suggestions?keyword=head&category=electronics&limit=5
      */
     @GetMapping("/suggestions")
@@ -55,9 +54,7 @@ public class ProductController {
         return ResponseEntity.ok(suggestions);
     }
 
-    /**
-     * Popular search keywords for quick access (display when user clicks search
-     * box)
+    /*
      * GET /api/v1/products/search-keywords
      */
     @GetMapping("/search-keywords")
@@ -68,14 +65,13 @@ public class ProductController {
 
     /**
      * Chi tiết product theo slug
-     * Ví dụ: GET /api/v1/products/slug/red-midi-dress
      */
     @GetMapping("/slug/{slug}")
     public ResponseEntity<ProductDetailResponse> getProductDetailBySlug(@PathVariable String slug) {
         return ResponseEntity.ok(productService.getProductDetailBySlug(slug));
     }
 
-    // Chi tiết product theo id (tiện cho admin / Postman)
+    // Chi tiết product theo id
     @GetMapping("/{id}")
     public ResponseEntity<ProductDetailResponse> getProductDetailById(@PathVariable Long id) {
         return ResponseEntity.ok(productService.getProductDetailById(id));

@@ -8,23 +8,11 @@ import java.util.List;
 
 public interface ChatbotService {
 
-    /**
-     * Process incoming chat message and generate response
-     */
     ChatResponse processMessage(ChatRequest request);
 
-    /**
-     * Get chat history for a session
-     */
     List<ChatHistoryItemResponse> getChatHistory(String sessionId);
 
-    /**
-     * Initialize chatbot knowledge base
-     */
     void initializeKnowledgeBase();
 
-    /**
-     * Get quick start suggestions
-     */
     List<String> getQuickStartSuggestions();
 }

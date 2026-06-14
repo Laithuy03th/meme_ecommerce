@@ -13,7 +13,7 @@ import lombok.*;
 public class ReviewRequest {
 
     @NotNull(message = "Order item ID is required")
-    private Long orderItemId; // Link to specific purchase
+    private Long orderItemId;
 
     @NotNull(message = "Rating is required")
     @Min(value = 1, message = "Rating must be between 1 and 5")

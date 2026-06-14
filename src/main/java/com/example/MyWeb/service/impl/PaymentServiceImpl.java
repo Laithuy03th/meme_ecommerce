@@ -203,7 +203,6 @@ public class PaymentServiceImpl implements PaymentService {
             throw new PaymentException("COD orders cannot be refunded online");
         }
 
-        // TODO: Call actual refund API of VNPay
         log.warn("VNPay Refund API call not yet implemented, only updating status for order: {}", orderId);
 
         order.setPaymentStatus(PaymentStatus.REFUNDED);
@@ -211,7 +210,6 @@ public class PaymentServiceImpl implements PaymentService {
         order.setUpdatedAt(LocalDateTime.now());
         orderRepository.save(order);
 
-        // Create refund transaction record
         PaymentTransaction refundTransaction = PaymentTransaction.builder()
                 .order(order)
                 .paymentMethod(order.getPaymentMethod())
@@ -234,8 +232,6 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
     }
 
-    // ==================== Private Helpers ====================
-
     private PaymentResponse updatePaymentStatus(Long orderId, PaymentStatus newPaymentStatus, String transactionId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new PaymentException("Order not found"));
@@ -254,7 +250,8 @@ public class PaymentServiceImpl implements PaymentService {
         if (newPaymentStatus == PaymentStatus.PAID) {
             if (order.getStatus() == OrderStatus.PENDING) {
                 order.setStatus(OrderStatus.CONFIRMED);
-                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order, OrderStatus.PENDING, OrderStatus.CONFIRMED));
+                eventPublisher.publishEvent(new com.example.MyWeb.event.OrderStatusChangedEvent(this, order,
+                        OrderStatus.PENDING, OrderStatus.CONFIRMED));
             }
             log.info("Payment successful for order: {}", orderId);
         } else {
@@ -265,7 +262,6 @@ public class PaymentServiceImpl implements PaymentService {
         order.setUpdatedAt(LocalDateTime.now());
         orderRepository.save(order);
 
-        // Update payment transaction
         PaymentTransaction transaction = paymentTransactionRepository
                 .findFirstByOrder_IdOrderByCreatedAtDesc(orderId)
                 .orElse(PaymentTransaction.builder()

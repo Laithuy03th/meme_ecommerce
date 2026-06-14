@@ -31,9 +31,8 @@ public class AdminProductRequest {
     private Integer stockQuantity;
 
     private String thumbnailUrl;
-    private java.util.List<String> imageUrls; // Additional images
+    private java.util.List<String> imageUrls;
 
-    // New standard e-commerce fields
     private String brand;
     private String sku;
     private Double weight;
@@ -43,6 +42,6 @@ public class AdminProductRequest {
     // ACTIVE / INACTIVE / DRAFT
     private String status;
 
-    // Thông số kỹ thuật theo category (key-value pairs)
+    // Thông số kỹ thuật theo category
     private java.util.Map<String, String> specifications;
 }

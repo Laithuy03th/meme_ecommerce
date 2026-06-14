@@ -20,15 +20,12 @@ public class VoucherController {
 
     private final VoucherService voucherService;
 
-    // ==================== ADMIN ENDPOINTS ====================
-
     @PostMapping("/admin/vouchers")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<VoucherResponse> createVoucher(@Valid @RequestBody VoucherRequest request) {
         return ResponseEntity.ok(voucherService.createVoucher(request));
     }
 
-    // ✅ ADDED: Get all vouchers with pagination
     @GetMapping("/admin/vouchers")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Page<VoucherResponse>> getAllVouchers(
@@ -37,14 +34,12 @@ public class VoucherController {
         return ResponseEntity.ok(voucherService.getAllVouchers(page, size));
     }
 
-    // ✅ ADDED: Get voucher by ID
     @GetMapping("/admin/vouchers/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<VoucherResponse> getVoucherById(@PathVariable Long id) {
         return ResponseEntity.ok(voucherService.getVoucherById(id));
     }
 
-    // ✅ ADDED: Update voucher
     @PutMapping("/admin/vouchers/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<VoucherResponse> updateVoucher(
@@ -53,7 +48,6 @@ public class VoucherController {
         return ResponseEntity.ok(voucherService.updateVoucher(id, request));
     }
 
-    // ✅ ADDED: Delete voucher
     @DeleteMapping("/admin/vouchers/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteVoucher(@PathVariable Long id) {
@@ -61,16 +55,12 @@ public class VoucherController {
         return ResponseEntity.noContent().build();
     }
 
-    // ✅ ADDED: Toggle voucher active status
     @PatchMapping("/admin/vouchers/{id}/toggle")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<VoucherResponse> toggleVoucher(@PathVariable Long id) {
         return ResponseEntity.ok(voucherService.toggleVoucher(id));
     }
 
-    // ==================== PUBLIC ENDPOINTS ====================
-
-    // ✅ ADDED: Get active vouchers (for customers)
     @GetMapping("/vouchers")
     public ResponseEntity<List<VoucherResponse>> getActiveVouchers() {
         return ResponseEntity.ok(voucherService.getActiveVouchers());
@@ -80,7 +70,7 @@ public class VoucherController {
     public ResponseEntity<VoucherValidationResponse> validateVoucher(
             @RequestParam String code,
             @RequestParam Double orderAmount,
-            @RequestParam(required = false) Long userId) { // FIX: Thêm userId để check per-user limit
+            @RequestParam(required = false) Long userId) {
         return ResponseEntity.ok(voucherService.validateVoucher(code, orderAmount, userId));
     }
 }

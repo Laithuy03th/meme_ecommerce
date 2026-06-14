@@ -14,11 +14,10 @@ import java.util.UUID;
 @Service
 public class FileStorageService {
 
-    // L7: Danh sách MIME type cho phép
+    // Danh sách MIME type cho phép
     private static final List<String> ALLOWED_CONTENT_TYPES = List.of(
-            "image/jpeg", "image/png", "image/webp", "image/gif"
-    );
-    // L7: Giới hạn kích thước 5MB
+            "image/jpeg", "image/png", "image/webp", "image/gif");
+    // Giới hạn kích thước 5MB
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024;
 
     private final Path fileStorageLocation;
@@ -37,19 +36,18 @@ public class FileStorageService {
             throw new RuntimeException("File is empty");
         }
 
-        // L7 FIX: Validate MIME type — ngăn upload file thực thi (.php, .jsp, .exe)
+        // Validate MIME type — ngăn upload file thực thi (.php, .jsp, .exe)
         String contentType = file.getContentType();
         if (contentType == null || !ALLOWED_CONTENT_TYPES.contains(contentType)) {
             throw new RuntimeException(
-                "Invalid file type: " + contentType + ". Only JPEG, PNG, WebP, GIF images are allowed."
-            );
+                    "Invalid file type: " + contentType + ". Only JPEG, PNG, WebP, GIF images are allowed.");
         }
 
-        // L7 FIX: Giới hạn kích thước file — ngăn DoS qua upload file khổng lồ
+        // Giới hạn kích thước file — ngăn DoS qua upload file khổng lồ
         if (file.getSize() > MAX_FILE_SIZE) {
             throw new RuntimeException(
-                "File size exceeds the maximum limit of 5MB. Current size: " + (file.getSize() / 1024 / 1024) + "MB"
-            );
+                    "File size exceeds the maximum limit of 5MB. Current size: " + (file.getSize() / 1024 / 1024)
+                            + "MB");
         }
 
         // Lấy extension từ original name (chỉ dùng extension, bỏ toàn bộ path gốc)
@@ -62,7 +60,7 @@ public class FileStorageService {
             }
         }
 
-        // UUID làm tên file — không bao giờ dùng original filename (ngăn path traversal)
+        // UUID làm tên file
         String fileName = UUID.randomUUID().toString() + fileExtension;
 
         try {

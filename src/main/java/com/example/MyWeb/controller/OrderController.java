@@ -50,7 +50,6 @@ public class OrderController {
     }
 
     // PUT /api/v1/users/me/orders/{orderId}/cancel
-    // FE có thể gửi kèm reason (optional) trong body
     @PutMapping("/{orderId}/cancel")
     public ResponseEntity<OrderResponse> cancelOrder(
             @PathVariable Long orderId,
@@ -70,7 +69,6 @@ public class OrderController {
 
     /**
      * POST /api/v1/users/me/orders/{orderId}/reorder
-     * Re-order: Add all items from old order to cart for quick re-purchase
      */
     @PostMapping("/{orderId}/reorder")
     public ResponseEntity<com.example.MyWeb.dto.cart.CartResponse> reorder(@PathVariable Long orderId) {

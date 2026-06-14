@@ -57,7 +57,7 @@ public class VoucherServiceImpl implements VoucherService {
     @Override
     @Transactional(readOnly = true)
     public VoucherValidationResponse validateVoucher(String code, Double orderAmount) {
-        // Delegate sang overload có userId, không kiểm tra per-user
+
         return validateVoucher(code, orderAmount, null);
     }
 
@@ -84,7 +84,6 @@ public class VoucherServiceImpl implements VoucherService {
                     .build();
         }
 
-        // FIX: Kiểm tra giới hạn per-user nếu có userId
         if (userId != null && voucher.getUsageLimitPerUser() != null) {
             long userUsage = orderRepository.countByUser_IdAndVoucherCode(userId, voucher.getCode());
             if (userUsage >= voucher.getUsageLimitPerUser()) {
@@ -100,7 +99,8 @@ public class VoucherServiceImpl implements VoucherService {
         if (voucher.getMinOrderAmount() != null && orderAmount < voucher.getMinOrderAmount()) {
             return VoucherValidationResponse.builder()
                     .valid(false)
-                    .message("Giỏ hàng cần tối thiểu " + String.format("%,.0fđ", voucher.getMinOrderAmount()) + " để dùng voucher này")
+                    .message("Giỏ hàng cần tối thiểu " + String.format("%,.0fđ", voucher.getMinOrderAmount())
+                            + " để dùng voucher này")
                     .discountAmount(0.0)
                     .voucher(toDto(voucher))
                     .build();
@@ -215,7 +215,7 @@ public class VoucherServiceImpl implements VoucherService {
     @Transactional(readOnly = true)
     public java.util.List<VoucherResponse> getActiveVouchers() {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
-        // L6 FIX: Dùng query có điều kiện, không load toàn bộ bảng vào RAM
+
         return voucherRepository.findActiveVouchers(now).stream()
                 .map(this::toDto)
                 .collect(java.util.stream.Collectors.toList());

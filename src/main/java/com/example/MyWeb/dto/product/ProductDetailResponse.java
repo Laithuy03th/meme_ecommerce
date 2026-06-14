@@ -37,7 +37,6 @@ public class ProductDetailResponse {
     private Integer stockQuantity;
     private String stockStatus; // "IN_STOCK", "LOW_STOCK", "OUT_OF_STOCK"
 
-    // Analytics & Social Proof
     private Double averageRating;
     private Integer reviewCount;
     private Integer soldCount;

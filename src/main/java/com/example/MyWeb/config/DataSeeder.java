@@ -29,7 +29,7 @@ public class DataSeeder implements CommandLineRunner {
         @Transactional
         public void run(String... args) {
                 System.out.println("=".repeat(70));
-                System.out.println("🌱 SEEDING BASE DATA - ROLES, USERS, SHIPPING METHODS");
+                System.out.println("SEEDING BASE DATA - ROLES, USERS, SHIPPING METHODS");
                 System.out.println("=".repeat(70));
 
                 // 1. Seed shipping methods
@@ -44,18 +44,18 @@ public class DataSeeder implements CommandLineRunner {
                 createUser("user@example.com", "123456", Set.of(customerRole));
                 createUser("jane@example.com", "123456", Set.of(customerRole));
 
-                System.out.println("✅ BASE DATA SEEDED SUCCESSFULLY");
+                System.out.println("BASE DATA SEEDED SUCCESSFULLY");
                 System.out.println("=".repeat(70));
         }
 
         private void seedShippingMethods() {
-                // Giữ logic đơn giản để tương thích với repository hiện tại của bạn
+                // Giữ logic đơn giản để tương thích với repository
                 if (shippingMethodRepository.count() > 0) {
-                        System.out.println("   ⏭️  Shipping methods already exist, skipping...");
+                        System.out.println("Shipping methods already exist, skipping...");
                         return;
                 }
 
-                System.out.println("   🚚 Seeding Shipping Methods...");
+                System.out.println("Seeding Shipping Methods...");
 
                 shippingMethodRepository.save(ShippingMethod.builder()
                                 .code("STANDARD")
@@ -81,7 +81,7 @@ public class DataSeeder implements CommandLineRunner {
                                 .iconUrl("https://cdn-icons-png.flaticon.com/512/263/263142.png")
                                 .build());
 
-                System.out.println("   ✅ Shipping methods seeded");
+                System.out.println("Shipping methods seeded");
         }
 
         private Role createRole(String code, String name) {

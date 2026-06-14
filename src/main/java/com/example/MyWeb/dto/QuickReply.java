@@ -5,10 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * QuickReply DTO for chatbot quick action buttons
- * Used to suggest quick replies/actions to users
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

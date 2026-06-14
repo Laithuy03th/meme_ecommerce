@@ -9,7 +9,7 @@ import java.util.stream.Collectors;
 
 public class VnpayUtils {
     public static String enc(String v) {
-        // Use US_ASCII to match legacy working logic
+
         return URLEncoder.encode(v, StandardCharsets.US_ASCII);
     }
 

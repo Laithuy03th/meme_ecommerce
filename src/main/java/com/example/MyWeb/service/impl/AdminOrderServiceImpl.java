@@ -26,7 +26,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
     private final OrderRepository orderRepository;
     @Lazy
-    private final OrderService orderService; // Delegate state machine & stock logic
+    private final OrderService orderService;
 
     private AdminOrderSummaryResponse toSummaryDto(Order o) {
         Address addr = o.getAddress();
@@ -56,7 +56,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 .productName(item.getProductName())
                 .unitPrice(item.getUnitPrice())
                 .quantity(item.getQuantity())
-                .lineTotal(item.getTotalPrice()) // hoặc getLineTotal() nếu bạn đặt tên khác
+                .lineTotal(item.getTotalPrice())
                 .build();
     }
 
@@ -119,8 +119,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 OrderStatus os = OrderStatus.valueOf(status.toUpperCase());
                 orderPage = orderRepository.findByStatusOrderByCreatedAtDesc(os, pageable);
             } catch (IllegalArgumentException e) {
-                // Nếu status không hợp lệ, có thể trả về empty hoặc throw error.
-                // Ở đây mình chọn trả về empty page cho an toàn
+
                 orderPage = Page.empty(pageable);
             }
         } else {
@@ -140,11 +139,9 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     @Override
     @Transactional
     public AdminOrderDetailResponse updateStatus(Long orderId, String newStatus) {
-        // Delegate xuống OrderService — nơi chứa State Machine và logic hoàn stock
-        // Tránh trùng lặp code và đảm bảo nhất quán (L5/L13 fix)
+
         orderService.updateOrderStatus(orderId, newStatus);
 
-        // Reload để trả về AdminOrderDetailResponse mới nhất
         return getDetail(orderId);
     }
 }

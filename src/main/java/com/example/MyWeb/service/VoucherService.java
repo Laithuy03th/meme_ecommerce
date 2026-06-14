@@ -13,12 +13,10 @@ public interface VoucherService {
 
     VoucherValidationResponse validateVoucher(String code, Double orderAmount);
 
-    /** Overload có kiểm tra giới hạn per-user. userId = null → bỏ qua kiểm tra này. */
     VoucherValidationResponse validateVoucher(String code, Double orderAmount, Long userId);
 
     VoucherResponse getVoucherByCode(String code);
 
-    // ✅ ADDED: Missing CRUD methods
     Page<VoucherResponse> getAllVouchers(int page, int size);
 
     VoucherResponse getVoucherById(Long id);

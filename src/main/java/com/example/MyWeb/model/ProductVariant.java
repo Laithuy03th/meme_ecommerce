@@ -18,10 +18,6 @@ public class ProductVariant {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /**
-     * Optimistic Locking cho variant stock.
-     * JPA tự động tăng version mỗi lần update.
-     */
     @Version
     @Column(name = "version", nullable = false, columnDefinition = "bigint default 0")
     private Long version = 0L;

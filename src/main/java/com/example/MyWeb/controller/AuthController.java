@@ -33,11 +33,6 @@ public class AuthController {
         return ResponseEntity.ok(user);
     }
 
-    /**
-     * Login endpoint
-     * Returns access token in response body
-     * Stores refresh token in HttpOnly cookie for security (XSS protection)
-     */
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(
             @Valid @RequestBody LoginRequest request,
@@ -45,14 +40,15 @@ public class AuthController {
 
         LoginResponse res = authService.login(request);
 
-        // LUÔN LUÔN dùng path "/" cho tất cả mọi người (tránh lỗi kẹt Cookie giữa Admin và Client)
+        // dùng path "/" cho tất cả mọi người (tránh lỗi kẹt Cookie giữa Admin và
+        // Client)
         Cookie refreshTokenCookie = CookieUtil.createRefreshTokenCookie(
                 res.getRefreshToken(),
                 7 * 24 * 60 * 60, // 7 days
                 "/");
         response.addCookie(refreshTokenCookie);
 
-        // Remove refresh token from response body for security
+        // Remove refresh
         res.setRefreshToken(null);
 
         return ResponseEntity.ok(res);
@@ -82,7 +78,6 @@ public class AuthController {
 
     /**
      * Logout endpoint
-     * Permitted to all (so expired tokens can still trigger logout logic cleanly)
      */
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(
@@ -96,10 +91,10 @@ public class AuthController {
             accessToken = authHeader.substring(7);
         }
 
-        // 2. Trích xuất Refresh Token TỪ COOKIE!
+        // 2. Trích xuất Refresh Token TỪ COOKIE
         String refreshToken = CookieUtil.getRefreshTokenFromCookies(request.getCookies());
 
-        // 3. Thực thi logic dọn dẹp (try-catch ẩn bên trong handle an toàn)
+        // 3. Thực thi logic dọn dẹp
         authService.logout(accessToken, refreshToken);
 
         // 4. Xóa Refresh Token Cookie tại Path chung "/"
@@ -110,9 +105,7 @@ public class AuthController {
     }
 
     /**
-     * Refresh token endpoint
-     * Gets refresh token from HttpOnly cookie (not request body)
-     * Returns new access token and sets new refresh token in cookie
+     * Refresh token
      */
     @PostMapping("/refresh")
     public ResponseEntity<?> refreshToken(
@@ -142,7 +135,7 @@ public class AuthController {
             loginResponse.setRefreshToken(null);
 
             return ResponseEntity.ok(loginResponse);
-            
+
         } catch (Exception e) {
             // Nếu rotation lỗi (do token đã bị dùng hoặc hết hạn), xóa cookie ngay
             response.addCookie(CookieUtil.deleteRefreshTokenCookie("/"));

@@ -32,13 +32,9 @@ public class PaymentController {
         return principal.getId();
     }
 
-    /**
-     * Extract client IP address from HTTP request
-     */
     private String getClientIp(HttpServletRequest request) {
         String xForwardedFor = request.getHeader("X-Forwarded-For");
         if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            // X-Forwarded-For may contain multiple IPs, get the first one
             return xForwardedFor.split(",")[0].trim();
         }
 

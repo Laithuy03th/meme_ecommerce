@@ -17,9 +17,6 @@ public interface ReviewService {
 
     ReviewResponse replyToReview(Long reviewId, String reply);
 
-    /**
-     * Update review (max 2 edits allowed - Shopee rule)
-     */
     ReviewResponse updateReview(Long userId, Long reviewId, ReviewRequest request);
 
     // Admin methods

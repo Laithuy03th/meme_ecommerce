@@ -49,7 +49,7 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
     @Override
     @Transactional
     public CategoryResponse createCategory(CategoryRequest request) {
-        // Auto-generate slug if empty
+
         String slug = request.getSlug();
         if (slug == null || slug.isBlank()) {
             slug = request.getName().toLowerCase()
@@ -57,7 +57,6 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
                     .replaceAll("\\s+", "-");
         }
 
-        // Check duplicate slug
         if (categoryRepository.existsBySlug(slug)) {
             throw new RuntimeException("Category slug already exists: " + slug);
         }
@@ -92,7 +91,6 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
         category.setSortOrder(request.getSortOrder() != null ? request.getSortOrder() : 0);
         category.setStatus(request.getStatus() != null ? request.getStatus() : "ACTIVE");
 
-        // Update slug if provided
         if (request.getSlug() != null && !request.getSlug().isBlank()) {
             if (!request.getSlug().equals(category.getSlug())) {
                 if (categoryRepository.existsBySlug(request.getSlug())) {
@@ -102,7 +100,6 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
             }
         }
 
-        // Update parent
         if (request.getParentId() != null) {
             Category parent = categoryRepository.findById(request.getParentId())
                     .orElseThrow(() -> new RuntimeException("Parent category not found"));
@@ -121,7 +118,6 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Category not found"));
 
-        // Soft delete by setting status to INACTIVE
         category.setStatus("INACTIVE");
         categoryRepository.save(category);
     }

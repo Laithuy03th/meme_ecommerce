@@ -36,14 +36,13 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * AI-powered Chatbot Service — Tuần 2 Implementation (RAG Integration)
- *
+ * 
  * Pipeline:
  * 1. Load conversation context (in-memory)
- * 2. LLM classify intent (Gemini gemini-flash-latest)
+ * 2. LLM classify intent (Gemini))
  * 3. Route theo intent:
  * - product → extract constraints → query DB → LLM diễn đạt
- * - policy → hardcoded + LLM (RAG sẽ thêm ở Tuần 2-3)
+ * - policy → hardcoded + LLM
  * - order → query DB → format response
  * - greeting → welcome message
  * 4. Update context + save to DB
@@ -68,13 +67,7 @@ public class ChatbotServiceImpl implements ChatbotService {
     // =========================================================================
 
     @Override
-    // KHÔNG dùng @Transactional ở đây: phương thức này gọi API ngoài (Gemini,
-    // 15-30s)
-    // lẫn với DB ops. Nếu giữ @Transactional, mọi RuntimeException từ Gemini sẽ
-    // mark
-    // transaction là rollback-only → gây lỗi "Transaction silently rolled back" ở
-    // câu thứ 2 trở đi.
-    // Các repository method đã có @Transactional riêng của chúng.
+
     public ChatResponse processMessage(ChatRequest request) {
         String sessionId = request.getSessionId();
         String userMessage = request.getMessage().trim();
@@ -84,8 +77,6 @@ public class ChatbotServiceImpl implements ChatbotService {
         // 1. Load conversation context
         List<ChatTurn> history = contextService.getHistory(sessionId);
 
-        // Nâng cấp: Nếu context rỗng (hôm sau user quay lại hoặc server vừa restart),
-        // tiến hành phục hồi lịch sử gần nhất từ Database để AI giữ được ngữ cảnh cũ
         if (history.isEmpty()) {
             List<ChatMessage> dbHistory = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
             if (!dbHistory.isEmpty()) {
@@ -95,15 +86,12 @@ public class ChatbotServiceImpl implements ChatbotService {
             }
         }
 
-        // 2. Resolve intent: rule-based safety net + Gemini hỗ trợ
         String intent = resolveIntent(userMessage, history, sessionId);
 
         log.info("[Chatbot] Intent: '{}'", intent);
 
-        // 3. Update context with user turn
         contextService.addUserTurn(sessionId, userMessage);
 
-        // 4. Generate response based on intent (bọc khỏi exception nếu handler bị lỗi)
         ChatResponse response;
         try {
             response = routeAndRespond(intent, userMessage, history, request);
@@ -116,11 +104,8 @@ public class ChatbotServiceImpl implements ChatbotService {
                     .build();
         }
 
-        // 5. Update context with bot response
         contextService.addBotTurn(sessionId, response.getResponse(), intent);
 
-        // 6. Save to DB qua ChatHistoryService (transaction REQUIRES_NEW hoạt động
-        // đúng)
         chatHistoryService.saveChatMessage(request, response);
 
         return response;
@@ -173,7 +158,6 @@ public class ChatbotServiceImpl implements ChatbotService {
     @PostConstruct
     @Override
     public void initializeKnowledgeBase() {
-        // Knowledge base cũ vẫn giữ để backward-compat, nhưng không còn là engine chính
         if (knowledgeRepository.count() > 0) {
             log.info("Knowledge base already initialized (legacy)");
             return;
@@ -234,7 +218,7 @@ public class ChatbotServiceImpl implements ChatbotService {
     }
 
     // =========================================================================
-    // Handler: Product Search (quan trọng nhất)
+    // Handler: Product Search
     // =========================================================================
 
     private ChatResponse handleProductSearch(ChatResponse.ChatResponseBuilder builder,
@@ -307,7 +291,6 @@ public class ChatbotServiceImpl implements ChatbotService {
                         .build();
             }
 
-            // Không có nearest cũng không có: hỏi lại ngắn gọn
             return builder
                     .response(
                             "Mình chưa tìm thấy sản phẩm phù hợp trong dữ liệu hiện tại. Bạn muốn đổi ngân sách, màu sắc hoặc loại sản phẩm không ạ?")
@@ -511,7 +494,7 @@ public class ChatbotServiceImpl implements ChatbotService {
     }
 
     // =========================================================================
-    // Handler: Policy/FAQ (Tuần 2: RAG Integration)
+    // Handler: Policy/FAQ
     // =========================================================================
 
     private ChatResponse handlePolicyQuestion(ChatResponse.ChatResponseBuilder builder,
@@ -761,9 +744,6 @@ public class ChatbotServiceImpl implements ChatbotService {
     // Helpers
     // =========================================================================
 
-    /**
-     * Tìm kiếm sản phẩm nâng cao bằng ProductSpecifications (Tuần 4)
-     */
     private List<Product> searchProductsAdvanced(ProductSearchConstraints c, int limit) {
         Sort sort = buildSort(c.getSortBy());
 

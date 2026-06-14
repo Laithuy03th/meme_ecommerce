@@ -5,13 +5,6 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
-/**
- * Entity for email verification tokens
- * Used to verify user email addresses during registration
- * 
- * @author Senior Software Engineer
- * @version 1.0
- */
 @Entity
 @Table(name = "email_verification_tokens", indexes = {
         @Index(name = "idx_token", columnList = "token"),
@@ -56,8 +49,6 @@ public class EmailVerificationToken {
 
     /**
      * Check if token has expired
-     * 
-     * @return true if token is expired
      */
     public boolean isExpired() {
         return LocalDateTime.now().isAfter(expiresAt);

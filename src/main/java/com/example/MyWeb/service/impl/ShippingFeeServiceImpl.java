@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class ShippingFeeServiceImpl implements ShippingFeeService {
 
-    // Free shipping threshold
     private static final Double FREE_SHIPPING_THRESHOLD = 500.0; // 500k
 
     @Override
@@ -26,19 +25,16 @@ public class ShippingFeeServiceImpl implements ShippingFeeService {
             throw new IllegalArgumentException("Shipping method is required");
         }
 
-        // Get base fee from shipping method (30k for Standard, 50k for Express)
         double fee = shippingMethod.getBaseFee();
         log.debug("Base shipping fee: {} (Method: {})", fee, shippingMethod.getName());
 
-        // Apply voucher discounts
         if (voucher != null) {
-            // Free shipping voucher (Full discount)
+
             if (Boolean.TRUE.equals(voucher.getFreeShipping())) {
                 log.info("Free shipping voucher applied. Original fee: {}, Final fee: 0", fee);
                 return 0.0;
             }
 
-            // Max shipping discount (Partial discount)
             if (voucher.getMaxShippingDiscount() != null && voucher.getMaxShippingDiscount() > 0) {
                 double discount = Math.min(fee, voucher.getMaxShippingDiscount());
                 fee -= discount;
@@ -48,7 +44,7 @@ public class ShippingFeeServiceImpl implements ShippingFeeService {
 
         log.info("Final shipping fee: {} (Method: {})", fee, shippingMethod.getName());
 
-        return Math.max(0.0, fee); // Never negative
+        return Math.max(0.0, fee);
     }
 
     @Override
@@ -61,8 +57,6 @@ public class ShippingFeeServiceImpl implements ShippingFeeService {
             throw new IllegalArgumentException("Shipping method is required");
         }
 
-        // Simple: Just return base fee
-        // No complex calculations needed for graduation project
         double fee = shippingMethod.getBaseFee();
 
         log.info("Shipping fee: {} (Method: {})", fee, shippingMethod.getName());

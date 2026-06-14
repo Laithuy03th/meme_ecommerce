@@ -155,7 +155,6 @@ public class CartServiceImpl implements CartService {
         if (existing != null) {
             int newQty = existing.getQuantity() + request.getQuantity();
 
-            // Check stock for existing item
             if (variant != null) {
                 if (variant.getStock() != null && newQty > variant.getStock()) {
                     throw new RuntimeException("Not enough stock for variant. Available: " + variant.getStock());
@@ -173,7 +172,7 @@ public class CartServiceImpl implements CartService {
             existing.setUpdatedAt(now);
             cartItemRepository.save(existing);
         } else {
-            // Check stock for new item
+
             if (variant != null) {
                 if (variant.getStock() != null && request.getQuantity() > variant.getStock()) {
                     throw new RuntimeException("Not enough stock for variant. Available: " + variant.getStock());
@@ -214,7 +213,7 @@ public class CartServiceImpl implements CartService {
 
         int newQty = request.getQuantity();
         if (newQty <= 0) {
-            // nếu muốn, có thể xoá luôn item
+
             cartItemRepository.delete(item);
         } else {
             // Check stock

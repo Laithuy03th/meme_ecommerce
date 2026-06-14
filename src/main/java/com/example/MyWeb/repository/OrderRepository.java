@@ -39,11 +39,9 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
         @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.user.id = :userId")
         Double sumTotalSpentByUserId(@Param("userId") Long userId);
 
-        // Check if user has bought product with Delivered status
         boolean existsByUser_IdAndItems_Product_IdAndStatus(Long userId, Long productId,
                         com.example.MyWeb.model.enums.OrderStatus status);
 
-        // Count voucher usage by user
         long countByUser_IdAndVoucherCode(Long userId, String voucherCode);
 
         /**

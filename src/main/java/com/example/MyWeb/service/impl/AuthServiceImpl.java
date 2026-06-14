@@ -27,7 +27,6 @@ import com.example.MyWeb.repository.UserRepository;
 import com.example.MyWeb.service.AuthService;
 import com.example.MyWeb.service.EmailService;
 
-// L18 FIX: Dùng Spring @Transactional — nhất quán với toàn bộ dự án
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
 
@@ -53,7 +52,7 @@ public class AuthServiceImpl implements AuthService {
         private final JwtService jwtService;
         private final PasswordResetTokenRepository passwordResetTokenRepository;
         private final JwtBlacklistService jwtBlacklistService;
-        private final EmailService emailService; // Inject EmailService
+        private final EmailService emailService;
         private final com.example.MyWeb.repository.RefreshTokenRepository refreshTokenRepository;
 
         @org.springframework.beans.factory.annotation.Value("${app.frontend.url:http://localhost:3000}")
@@ -164,7 +163,7 @@ public class AuthServiceImpl implements AuthService {
                 User user = userRepository.findByEmail(req.getEmail())
                                 .orElseThrow(() -> new RuntimeException("Email not found"));
 
-                // L2. Xóa các token cũ của user trước khi tạo token mới (tránh spam tạo quá
+                // Xóa các token cũ của user trước khi tạo token mới (tránh spam tạo quá
                 // nhiều token)
                 passwordResetTokenRepository.deleteByUser(user);
 
@@ -177,13 +176,15 @@ public class AuthServiceImpl implements AuthService {
                                 .build();
                 passwordResetTokenRepository.save(prt);
 
-                // L3 + L1. Gửi email với URL từ config, xóa dòng in token ra console
                 String resetLink = frontendUrl + "/reset-password?token=" + token;
-                String subject = "Reset Password Request";
-                String content = "Click the link below to reset your password:\n" + resetLink
-                                + "\n\nThis link expires in 30 minutes.";
+                String subject = "Reset Password Request - MemeShop";
+                String content = "<h2>Yêu cầu đặt lại mật khẩu</h2>"
+                                + "<p>Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản tại MemeShop. Vui lòng click vào nút bên dưới để tiến hành đổi mật khẩu mới:</p>"
+                                + "<div style=\"text-align: center; margin: 30px 0;\"><a href=\"" + resetLink
+                                + "\" style=\"background-color: #6366f1; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: bold;\">Đặt Lại Mật Khẩu</a></div>"
+                                + "<p style=\"color: #6b7280; font-size: 14px;\">Đường dẫn này sẽ hết hạn trong vòng 30 phút. Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email này.</p>";
 
-                emailService.sendSimpleMessage(user.getEmail(), subject, content);
+                emailService.sendHtmlMessage(user.getEmail(), subject, content);
         }
 
         // Reset password bằng token
@@ -221,7 +222,8 @@ public class AuthServiceImpl implements AuthService {
         @Override
         @Transactional
         public void logout(String accessToken, String refreshToken) {
-                // 1. Blacklist access token nếu còn hiệu lực (bắt exception nếu đã hết hạn thì bỏ qua)
+                // 1. Blacklist access token nếu còn hiệu lực (bắt exception nếu đã hết hạn thì
+                // bỏ qua)
                 if (accessToken != null && !accessToken.isEmpty()) {
                         try {
                                 long exp = jwtService.getExpirationEpochSeconds(accessToken);
@@ -230,8 +232,6 @@ public class AuthServiceImpl implements AuthService {
                                 // Access token đã hết hạn hoặc không hợp lệ -> Không cần blacklist
                         }
                 }
-
-                // 2. LỖI FIX: Chỉ xóa ĐÚNG refresh token của phiên này, không xóa sách token các thiết bị khác
                 if (refreshToken != null && !refreshToken.isEmpty()) {
                         refreshTokenRepository.findByTokenHash(refreshToken).ifPresent(rt -> {
                                 refreshTokenRepository.delete(rt);
@@ -265,9 +265,8 @@ public class AuthServiceImpl implements AuthService {
                 User user = userRepository.findByEmail(email)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-                // LỖ HỔNG: Phải chặn user đã bị BAN/Khóa không cho phép lấy access token mới
                 if (user.getStatus() != UserStatus.ACTIVE) {
-                        refreshTokenRepository.delete(rt); // Thu hồi luôn token mồi
+                        refreshTokenRepository.delete(rt);
                         throw new RuntimeException("User account is disabled or locked");
                 }
 
@@ -282,7 +281,7 @@ public class AuthServiceImpl implements AuthService {
                 // 5. Generate new refresh token (rotating refresh token strategy)
                 String newRefreshToken = jwtService.generateRefreshToken(user.getEmail());
 
-                // L4. ROTATION: Xóa Refresh Token cũ, lưu Refresh Token mới (tránh Replay
+                // Xóa Refresh Token cũ, lưu Refresh Token mới (tránh Replay
                 // Attack)
                 refreshTokenRepository.delete(rt);
 

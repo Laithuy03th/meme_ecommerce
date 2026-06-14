@@ -12,6 +12,8 @@ import com.example.MyWeb.repository.OrderItemRepository;
 import com.example.MyWeb.repository.ProductRepository;
 import com.example.MyWeb.repository.ReviewRepository;
 import com.example.MyWeb.repository.UserRepository;
+import com.example.MyWeb.service.AdminNotificationService;
+import com.example.MyWeb.model.enums.AdminNotificationType;
 import com.example.MyWeb.service.ReviewService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,7 @@ public class ReviewServiceImpl implements ReviewService {
     private final ProductRepository productRepository;
     private final CustomerProfileRepository customerProfileRepository;
     private final OrderItemRepository orderItemRepository;
+    private final AdminNotificationService adminNotificationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -49,18 +52,15 @@ public class ReviewServiceImpl implements ReviewService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
-        // VERIFY PURCHASE: User must have bought this product
         com.example.MyWeb.model.OrderItem orderItem = orderItemRepository.findReviewableOrderItem(
                 request.getOrderItemId(), userId)
                 .orElseThrow(() -> new RuntimeException(
                         "Order item not found or not delivered. You must purchase and receive this product to review."));
 
-        // Verify order item belongs to the correct product
         if (!orderItem.getProduct().getId().equals(productId)) {
             throw new RuntimeException("Order item does not belong to this product");
         }
 
-        // CHECK IF ALREADY REVIEWED THIS PURCHASE
         boolean alreadyReviewed = reviewRepository.existsByUser_IdAndOrderItem_Id(
                 userId, orderItem.getId());
 
@@ -69,7 +69,6 @@ public class ReviewServiceImpl implements ReviewService {
                     "You have already reviewed this purchase. You can only review once per purchase.");
         }
 
-        // CREATE REVIEW LINKED TO PURCHASE
         Review review = Review.builder()
                 .user(user)
                 .product(product)
@@ -84,8 +83,17 @@ public class ReviewServiceImpl implements ReviewService {
 
         review = reviewRepository.save(review);
 
-        // Update product average rating and review count
         updateProductRating(productId);
+
+        // Notify Admin
+        adminNotificationService.createNotification(
+                "Đánh giá mới",
+                "Sản phẩm " + product.getName() + " vừa nhận được 1 đánh giá mới " + request.getRating() + " sao.",
+                AdminNotificationType.REVIEW_CREATED,
+                "REVIEW",
+                review.getId(),
+                "/reviews",
+                user.getEmail());
 
         return toDto(review);
     }
@@ -192,7 +200,6 @@ public class ReviewServiceImpl implements ReviewService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
 
-        // L10 FIX: Dùng SQL AVG chứ không load toàn bộ review vào RAM
         long reviewCount = reviewRepository.countByProduct_Id(productId);
         if (reviewCount == 0) {
             product.setAverageRating(null);

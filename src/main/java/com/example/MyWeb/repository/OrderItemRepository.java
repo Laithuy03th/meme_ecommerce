@@ -11,40 +11,31 @@ import java.util.Optional;
 
 public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
 
-    @Query("SELECT oi.product.id as productId, oi.product.name as productName, " +
-            "oi.product.slug as productSlug, SUM(oi.quantity) as totalSold, " +
-            "SUM(oi.totalPrice) as totalRevenue " +
-            "FROM OrderItem oi " +
-            "WHERE oi.order.status = 'DELIVERED' " +
-            "GROUP BY oi.product.id, oi.product.name, oi.product.slug " +
-            "ORDER BY totalSold DESC " +
-            "LIMIT 10")
-    List<Object[]> findTopSellingProducts();
+        @Query("SELECT oi.product.id as productId, oi.product.name as productName, " +
+                        "oi.product.slug as productSlug, SUM(oi.quantity) as totalSold, " +
+                        "SUM(oi.totalPrice) as totalRevenue " +
+                        "FROM OrderItem oi " +
+                        "WHERE oi.order.status = 'DELIVERED' " +
+                        "GROUP BY oi.product.id, oi.product.name, oi.product.slug " +
+                        "ORDER BY totalSold DESC " +
+                        "LIMIT 10")
+        List<Object[]> findTopSellingProducts();
 
-    // NEW: Purchase verification for reviews
-    /**
-     * Find delivered order items for a user and product
-     * Used to verify user purchased the product before allowing review
-     */
-    @Query("SELECT oi FROM OrderItem oi " +
-            "WHERE oi.order.user.id = :userId " +
-            "AND oi.product.id = :productId " +
-            "AND oi.order.status = :status " +
-            "ORDER BY oi.order.createdAt DESC")
-    List<OrderItem> findByUserIdAndProductIdAndOrderStatus(
-            @Param("userId") Long userId,
-            @Param("productId") Long productId,
-            @Param("status") OrderStatus status);
+        @Query("SELECT oi FROM OrderItem oi " +
+                        "WHERE oi.order.user.id = :userId " +
+                        "AND oi.product.id = :productId " +
+                        "AND oi.order.status = :status " +
+                        "ORDER BY oi.order.createdAt DESC")
+        List<OrderItem> findByUserIdAndProductIdAndOrderStatus(
+                        @Param("userId") Long userId,
+                        @Param("productId") Long productId,
+                        @Param("status") OrderStatus status);
 
-    /**
-     * Find a specific order item that user can review
-     * Returns order item only if order is DELIVERED and not yet reviewed
-     */
-    @Query("SELECT oi FROM OrderItem oi " +
-            "WHERE oi.id = :orderItemId " +
-            "AND oi.order.user.id = :userId " +
-            "AND oi.order.status = 'DELIVERED'")
-    Optional<OrderItem> findReviewableOrderItem(
-            @Param("orderItemId") Long orderItemId,
-            @Param("userId") Long userId);
+        @Query("SELECT oi FROM OrderItem oi " +
+                        "WHERE oi.id = :orderItemId " +
+                        "AND oi.order.user.id = :userId " +
+                        "AND oi.order.status = 'DELIVERED'")
+        Optional<OrderItem> findReviewableOrderItem(
+                        @Param("orderItemId") Long orderItemId,
+                        @Param("userId") Long userId);
 }
