@@ -61,6 +61,7 @@ public class ChatbotServiceImpl implements ChatbotService {
     private final RagService ragService;
     private final ConversationContextService contextService;
     private final ObjectMapper objectMapper;
+    private final com.example.MyWeb.repository.CategoryRepository categoryRepository;
 
     // =========================================================================
     // Public API (implements ChatbotService interface)
@@ -291,11 +292,24 @@ public class ChatbotServiceImpl implements ChatbotService {
                         .build();
             }
 
+            // ================================================================
+            // Không tìm thấy bất kỳ sản phẩm nào dù đã relax constraints
+            // → Shop không bán mặt hàng này, trả lời rõ ràng
+            // ================================================================
+            String itemName = hasText(constraints.getKeyword()) ? constraints.getKeyword()
+                    : hasText(constraints.getCategorySlug()) ? constraints.getCategorySlug()
+                    : userMessage;
+
+            // Lấy danh sách category thực tế từ DB để gợi ý cho user
+            String categorySuggestion = buildCategorySuggestionText();
+
             return builder
-                    .response(
-                            "Mình chưa tìm thấy sản phẩm phù hợp trong dữ liệu hiện tại. Bạn muốn đổi ngân sách, màu sắc hoặc loại sản phẩm không ạ?")
-                    .quickReplies(List.of(
-                            QuickReply.builder().label("Tìm lại").value("tôi muốn tìm sản phẩm khác").build()))
+                    .response(String.format(
+                            "Rất tiếc, MemeShop hiện chưa kinh doanh mặt hàng **%s** 😔\n\n" +
+                            "Hiện tại shop đang có:\n%s\n\n" +
+                            "Bạn có muốn mình tìm sản phẩm trong các danh mục trên không? 😊",
+                            itemName, categorySuggestion))
+                    .quickReplies(buildCategoryQuickReplies())
                     .build();
         }
 
@@ -849,6 +863,10 @@ public class ChatbotServiceImpl implements ChatbotService {
         if (!hasText(c.getKeyword()))
             c.setKeyword(inferKeywordFromText(userMessage, c.getCategorySlug()));
 
+        // === FIX: Nếu LLM trả keyword nhưng category null và không match rule,
+        // thử tìm theo keyword tự do — hỗ trợ sản phẩm mới chưa có trong catalog hardcode ===
+        // (Không cần làm gì thêm: searchProductsAdvanced sẽ search full-text với keyword)
+
         return c;
     }
 
@@ -1270,9 +1288,13 @@ public class ChatbotServiceImpl implements ChatbotService {
 
     /**
      * Rule-based intent detection.
-     * Thứ tự: order > policy > product > greeting > follow-up > other
-     * Policy check TRƯỚC product để tránh "chính sách mua hàng" bị nhầm thành
-     * product.
+     * Thứ tự: order > policy > specs > product > greeting > follow-up > other
+     * Policy check TRƯỚC product để tránh "chính sách mua hàng" bị nhầm thành product.
+     *
+     * FIX: Thêm các trigger từ để nhận diện câu hỏi mua/tìm sản phẩm chung,
+     * kể cả sản phẩm shop chưa bán ("có bán X không?", "shop có X không?").
+     * Những câu này sẽ route sang product handler → query DB → nếu không có
+     * → trả lời "shop không bán" thay vì "không hiểu".
      */
     private String detectIntentByRules(String message, List<ChatTurn> history, String sessionId) {
         String msg = safeLower(message);
@@ -1286,10 +1308,15 @@ public class ChatbotServiceImpl implements ChatbotService {
 
         // 2. Policy / FAQ / RAG — TRƯỚC product để "chính sách mua hàng" không bị nhầm
         if (containsAny(msg,
-                "chính sách", "mua hàng", "trả hàng", "đổi trả", "hoàn trả",
-                "bảo hành", "giao hàng", "phí ship", "vận chuyển",
-                "thanh toán", "hình thức thanh toán", "quy trình thanh toán",
+                "chính sách", "trả hàng", "đổi trả", "hoàn trả",
+                "bảo hành", "phí ship", "vận chuyển",
+                "hình thức thanh toán", "quy trình thanh toán",
                 "cod", "vnpay", "momo", "hoàn tiền", "voucher", "khuyến mãi")) {
+            return "policy";
+        }
+        // "giao hàng" và "thanh toán" chỉ là policy nếu đứng riêng, không đi cùng "có bán"/"mua"
+        if (containsAny(msg, "giao hàng", "thanh toán") &&
+                !containsAny(msg, "có bán", "mua", "tìm", "giá", "bao nhiêu")) {
             return "policy";
         }
 
@@ -1303,7 +1330,15 @@ public class ChatbotServiceImpl implements ChatbotService {
             return "specs";
         }
 
-        // 3. Product — dùng product noun cụ thể từ catalog thực tế
+        // 3a. Câu hỏi dạng "có bán X không?", "shop có X không?", "bán X không?" → luôn là product
+        // Quan trọng: bắt được câu hỏi về SẢN PHẨM SHOP KHÔNG BÁN (thìa, nồi, v.v.)
+        if (containsAny(msg, "có bán", "bán không", "shop có", "shop bán",
+                "có kinh doanh", "có không", "bán gì", "có hàng") &&
+                !containsAny(msg, "chính sách", "đổi trả")) {
+            return "product";
+        }
+
+        // 3b. Product — dùng product noun cụ thể từ catalog thực tế
         if (containsAny(msg,
                 // Fashion
                 "váy", "đầm", "dress", "áo thun", "áo hoodie", "hoodie",
@@ -1327,7 +1362,8 @@ public class ChatbotServiceImpl implements ChatbotService {
             return "product";
         }
 
-        if (containsAny(msg, "tìm sản phẩm", "mua sản phẩm", "tư vấn sản phẩm", "gợi ý sản phẩm")) {
+        if (containsAny(msg, "tìm sản phẩm", "mua sản phẩm", "tư vấn sản phẩm",
+                "gợi ý sản phẩm", "mua", "tìm")) {
             return "product";
         }
 
@@ -1401,5 +1437,62 @@ public class ChatbotServiceImpl implements ChatbotService {
         }
 
         return results;
+    }
+
+    // =========================================================================
+    // Dynamic Category Helpers — Lấy category từ DB thay vì hardcode
+    // =========================================================================
+
+    /**
+     * Xây dựng text gợi ý category từ DB thực tế.
+     * Khi admin thêm category mới → tự động hiển thị trong chatbot.
+     */
+    private String buildCategorySuggestionText() {
+        try {
+            List<com.example.MyWeb.model.Category> categories =
+                    categoryRepository.findAllByStatusOrderBySortOrderAsc("ACTIVE");
+
+            if (categories.isEmpty()) {
+                return "• Đang cập nhật danh mục sản phẩm";
+            }
+
+            return categories.stream()
+                    .filter(c -> c.getParent() == null) // Chỉ lấy root categories
+                    .map(c -> "• " + c.getName())
+                    .collect(Collectors.joining("\n"));
+        } catch (Exception e) {
+            log.warn("[Chatbot] Failed to load categories for suggestion: {}", e.getMessage());
+            return "• Thời trang\n• Điện tử\n• Làm đẹp\n• Nội thất";
+        }
+    }
+
+    /**
+     * Xây dựng QuickReplies động từ category DB.
+     * Tự động thêm category mới khi admin tạo.
+     */
+    private List<QuickReply> buildCategoryQuickReplies() {
+        try {
+            List<com.example.MyWeb.model.Category> categories =
+                    categoryRepository.findAllByStatusOrderBySortOrderAsc("ACTIVE");
+
+            List<QuickReply> replies = categories.stream()
+                    .filter(c -> c.getParent() == null)
+                    .limit(4)
+                    .map(c -> QuickReply.builder()
+                            .label("🛍️ " + c.getName())
+                            .value("tôi muốn tìm " + c.getName().toLowerCase())
+                            .build())
+                    .collect(Collectors.toList());
+
+            if (replies.isEmpty()) {
+                replies = Arrays.asList(
+                        QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build());
+            }
+            return replies;
+        } catch (Exception e) {
+            log.warn("[Chatbot] Failed to build category quick replies: {}", e.getMessage());
+            return Arrays.asList(
+                    QuickReply.builder().label("🔍 Tìm sản phẩm").value("tôi muốn tìm sản phẩm").build());
+        }
     }
 }
