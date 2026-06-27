@@ -298,7 +298,7 @@ public class ChatbotServiceImpl implements ChatbotService {
             // ================================================================
             String itemName = hasText(constraints.getKeyword()) ? constraints.getKeyword()
                     : hasText(constraints.getCategorySlug()) ? constraints.getCategorySlug()
-                    : userMessage;
+                            : userMessage;
 
             // Lấy danh sách category thực tế từ DB để gợi ý cho user
             String categorySuggestion = buildCategorySuggestionText();
@@ -306,8 +306,8 @@ public class ChatbotServiceImpl implements ChatbotService {
             return builder
                     .response(String.format(
                             "Rất tiếc, MemeShop hiện chưa kinh doanh mặt hàng **%s** 😔\n\n" +
-                            "Hiện tại shop đang có:\n%s\n\n" +
-                            "Bạn có muốn mình tìm sản phẩm trong các danh mục trên không? 😊",
+                                    "Hiện tại shop đang có:\n%s\n\n" +
+                                    "Bạn có muốn mình tìm sản phẩm trong các danh mục trên không? 😊",
                             itemName, categorySuggestion))
                     .quickReplies(buildCategoryQuickReplies())
                     .build();
@@ -864,8 +864,10 @@ public class ChatbotServiceImpl implements ChatbotService {
             c.setKeyword(inferKeywordFromText(userMessage, c.getCategorySlug()));
 
         // === FIX: Nếu LLM trả keyword nhưng category null và không match rule,
-        // thử tìm theo keyword tự do — hỗ trợ sản phẩm mới chưa có trong catalog hardcode ===
-        // (Không cần làm gì thêm: searchProductsAdvanced sẽ search full-text với keyword)
+        // thử tìm theo keyword tự do — hỗ trợ sản phẩm mới chưa có trong catalog
+        // hardcode ===
+        // (Không cần làm gì thêm: searchProductsAdvanced sẽ search full-text với
+        // keyword)
 
         return c;
     }
@@ -1289,7 +1291,8 @@ public class ChatbotServiceImpl implements ChatbotService {
     /**
      * Rule-based intent detection.
      * Thứ tự: order > policy > specs > product > greeting > follow-up > other
-     * Policy check TRƯỚC product để tránh "chính sách mua hàng" bị nhầm thành product.
+     * Policy check TRƯỚC product để tránh "chính sách mua hàng" bị nhầm thành
+     * product.
      *
      * FIX: Thêm các trigger từ để nhận diện câu hỏi mua/tìm sản phẩm chung,
      * kể cả sản phẩm shop chưa bán ("có bán X không?", "shop có X không?").
@@ -1314,7 +1317,8 @@ public class ChatbotServiceImpl implements ChatbotService {
                 "cod", "vnpay", "momo", "hoàn tiền", "voucher", "khuyến mãi")) {
             return "policy";
         }
-        // "giao hàng" và "thanh toán" chỉ là policy nếu đứng riêng, không đi cùng "có bán"/"mua"
+        // "giao hàng" và "thanh toán" chỉ là policy nếu đứng riêng, không đi cùng "có
+        // bán"/"mua"
         if (containsAny(msg, "giao hàng", "thanh toán") &&
                 !containsAny(msg, "có bán", "mua", "tìm", "giá", "bao nhiêu")) {
             return "policy";
@@ -1330,7 +1334,8 @@ public class ChatbotServiceImpl implements ChatbotService {
             return "specs";
         }
 
-        // 3a. Câu hỏi dạng "có bán X không?", "shop có X không?", "bán X không?" → luôn là product
+        // 3a. Câu hỏi dạng "có bán X không?", "shop có X không?", "bán X không?" → luôn
+        // là product
         // Quan trọng: bắt được câu hỏi về SẢN PHẨM SHOP KHÔNG BÁN (thìa, nồi, v.v.)
         if (containsAny(msg, "có bán", "bán không", "shop có", "shop bán",
                 "có kinh doanh", "có không", "bán gì", "có hàng") &&
@@ -1449,8 +1454,8 @@ public class ChatbotServiceImpl implements ChatbotService {
      */
     private String buildCategorySuggestionText() {
         try {
-            List<com.example.MyWeb.model.Category> categories =
-                    categoryRepository.findAllByStatusOrderBySortOrderAsc("ACTIVE");
+            List<com.example.MyWeb.model.Category> categories = categoryRepository
+                    .findAllByStatusOrderBySortOrderAsc("ACTIVE");
 
             if (categories.isEmpty()) {
                 return "• Đang cập nhật danh mục sản phẩm";
@@ -1472,8 +1477,8 @@ public class ChatbotServiceImpl implements ChatbotService {
      */
     private List<QuickReply> buildCategoryQuickReplies() {
         try {
-            List<com.example.MyWeb.model.Category> categories =
-                    categoryRepository.findAllByStatusOrderBySortOrderAsc("ACTIVE");
+            List<com.example.MyWeb.model.Category> categories = categoryRepository
+                    .findAllByStatusOrderBySortOrderAsc("ACTIVE");
 
             List<QuickReply> replies = categories.stream()
                     .filter(c -> c.getParent() == null)
