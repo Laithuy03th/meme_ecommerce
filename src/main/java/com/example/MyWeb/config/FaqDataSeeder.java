@@ -17,10 +17,8 @@ import java.util.List;
 public class FaqDataSeeder {
 
     private final LlmService llmService;
-    private final JdbcTemplate jdbcTemplate;  // Dùng JdbcTemplate thay @Modifying để tránh transaction proxy issue
-
+    private final JdbcTemplate jdbcTemplate;
     private static final long EXPECTED_COUNT = 6L;
-    // model API thực tế trả 3072 dims — phải khớp với cột vector(3072) trong DB
     private static final int EXPECTED_EMBEDDING_DIM = 3072;
 
     @Bean
@@ -121,8 +119,6 @@ public class FaqDataSeeder {
                             continue;
                         }
 
-                        // Dùng JdbcTemplate.update() thay vì @Modifying JPA query
-                        // để tránh "Executing an update/delete query" (transaction proxy issue)
                         String vectorString = toVectorString(embedding);
                         jdbcTemplate.update(
                             "INSERT INTO faq_documents (category, content, created_at, embedding, title) " +
@@ -133,7 +129,7 @@ public class FaqDataSeeder {
                         success++;
                         log.info("RAG FAQ: [{}/{}] Seeded '{}' ✓", success, documents.size(), title);
 
-                        // Sleep để tránh rate limit Gemini free tier (15 RPM)
+
                         Thread.sleep(2000);
 
                     } catch (InterruptedException ie) {
