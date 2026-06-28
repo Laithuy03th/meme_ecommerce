@@ -63,6 +63,7 @@ public class OrderServiceImpl implements OrderService {
                                 .unitPrice(item.getUnitPrice())
                                 .quantity(item.getQuantity())
                                 .totalPrice(item.getTotalPrice())
+                                .currentStock(v != null ? v.getStock() : p.getStockQuantity())
                                 .build();
         }
 

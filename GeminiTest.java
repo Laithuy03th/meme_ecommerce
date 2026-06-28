@@ -20,7 +20,6 @@ public class GeminiTest {
         System.out.println("Status: " + response.statusCode());
         
         String body = response.body();
-        // Just count commas in the values array
         int count = body.split(",").length;
         System.out.println("Values count: " + count);
     }

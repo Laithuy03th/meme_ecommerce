@@ -23,4 +23,5 @@ public class OrderItemResponse {
     private Double unitPrice;
     private Integer quantity;
     private Double totalPrice;
+    private Integer currentStock;
 }
