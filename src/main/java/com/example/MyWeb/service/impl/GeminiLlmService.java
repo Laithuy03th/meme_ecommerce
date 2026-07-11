@@ -65,11 +65,12 @@ public class GeminiLlmService implements LlmService {
 
                 === NHIỆM VỤ ===
                 Phân loại câu hỏi sau vào ĐÚNG MỘT trong các nhóm:
-                - "product"  : tìm kiếm sản phẩm, hỏi giá, so sánh, gợi ý mua hàng
-                - "policy"   : chính sách đổi trả, giao hàng, bảo hành, thanh toán, voucher
-                - "order"    : tra cứu đơn hàng, trạng thái đơn, lịch sử mua hàng
-                - "greeting" : chào hỏi, hỏi thông tin cửa hàng, liên hệ
-                - "other"    : không rõ ý định hoặc nằm ngoài các nhóm trên
+                - "product"    : tìm kiếm sản phẩm, hỏi giá, so sánh, gợi ý mua hàng
+                - "policy"     : chính sách đổi trả, giao hàng, bảo hành, thanh toán, voucher
+                - "order"      : tra cứu đơn hàng, trạng thái đơn, lịch sử mua hàng
+                - "greeting"   : chào hỏi, hỏi thông tin cửa hàng, liên hệ
+                - "size_guide" : hỏi về kích cỡ, số đo cơ thể, tư vấn mặc size mấy, đi giày số mấy, bảng size quần áo/giày, cân nặng chiều cao mặc gì, chân dài bao nhiêu cm
+                - "other"      : không rõ ý định hoặc nằm ngoài các nhóm trên
 
                 Câu hỏi: "%s"
 
@@ -84,7 +85,7 @@ public class GeminiLlmService implements LlmService {
                 .replaceAll("[\"'`]", "") // Remove quotes
                 .replaceAll("\\s+", ""); // Remove whitespace
 
-        if (List.of("product", "policy", "order", "greeting", "other").contains(cleaned)) {
+        if (List.of("product", "policy", "order", "greeting", "size_guide", "other").contains(cleaned)) {
             log.info("Intent classified: '{}' → '{}'", userMessage.substring(0, Math.min(50, userMessage.length())),
                     cleaned);
             return cleaned;

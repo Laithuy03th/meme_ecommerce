@@ -14,6 +14,7 @@ import com.example.MyWeb.service.ChatHistoryService;
 import com.example.MyWeb.repository.ChatbotKnowledgeRepository;
 import com.example.MyWeb.repository.OrderRepository;
 import com.example.MyWeb.repository.ProductRepository;
+import com.example.MyWeb.repository.ProductVariantRepository;
 import com.example.MyWeb.repository.spec.ProductSpecifications;
 import com.example.MyWeb.service.impl.GeminiLlmService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -56,6 +57,7 @@ public class ChatbotServiceImpl implements ChatbotService {
     private final ChatHistoryService chatHistoryService;
     private final ChatbotKnowledgeRepository knowledgeRepository;
     private final ProductRepository productRepository;
+    private final ProductVariantRepository productVariantRepository;
     private final OrderRepository orderRepository;
     private final LlmService llmService;
     private final RagService ragService;
@@ -174,8 +176,10 @@ public class ChatbotServiceImpl implements ChatbotService {
             case "specs" -> handleProductSpecs(builder, userMessage, history);
             case "policy" -> handlePolicyQuestion(builder, userMessage, history);
             case "order" -> handleOrderTracking(builder, userMessage, history, request.getUserId());
+            case "size_guide" -> handleSizeGuide(builder, userMessage, history);
             default -> handleOther(builder, userMessage, history);
         };
+
     }
 
     private ChatResponse handleGreeting(ChatResponse.ChatResponseBuilder builder,
@@ -333,9 +337,36 @@ public class ChatbotServiceImpl implements ChatbotService {
                         } catch (Exception ignored) {
                         }
                     }
+                    // Bổ sung sizes và màu sắc có sẵn từ variants
+                    try {
+                        List<com.example.MyWeb.model.ProductVariant> variants =
+                                productVariantRepository.findByProductId(p.getId());
+                        if (!variants.isEmpty()) {
+                            List<String> sizes = variants.stream()
+                                    .filter(v -> v.getSize() != null && !v.getSize().isBlank()
+                                            && "ACTIVE".equals(v.getStatus()) && v.getStock() != null && v.getStock() > 0)
+                                    .map(com.example.MyWeb.model.ProductVariant::getSize)
+                                    .distinct()
+                                    .collect(Collectors.toList());
+                            List<String> colors = variants.stream()
+                                    .filter(v -> v.getColor() != null && !v.getColor().isBlank()
+                                            && "ACTIVE".equals(v.getStatus()))
+                                    .map(com.example.MyWeb.model.ProductVariant::getColor)
+                                    .distinct()
+                                    .collect(Collectors.toList());
+                            if (!sizes.isEmpty()) {
+                                sb.append("\n    Sizes có sẵn: ").append(String.join(", ", sizes));
+                            }
+                            if (!colors.isEmpty()) {
+                                sb.append("\n    Màu sắc: ").append(String.join(", ", colors));
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
                     return sb.toString();
                 })
                 .collect(Collectors.joining("\n"));
+
 
         // Danh sách IDs hợp lệ (để Gemini chỉ dùng đúng những ID này)
         String validIds = products.stream()
@@ -749,6 +780,114 @@ public class ChatbotServiceImpl implements ChatbotService {
                         QuickReply.builder().label("📦 Đơn hàng").value("xem đơn hàng của tôi").build()))
                 .build();
     }
+
+    /**
+     * Xử lý câu hỏi về kích cỡ / size quần áo và giày.
+     * Dùng bảng size chuẩn VN hardcoded + LLM để tư vấn cá nhân hóa.
+     */
+    private ChatResponse handleSizeGuide(ChatResponse.ChatResponseBuilder builder,
+            String userMessage, List<ChatTurn> history) {
+
+        // Phát hiện loại sản phẩm từ context (áo/váy hay giày)
+        boolean isShoe = containsAny(safeLower(userMessage),
+                "giày", "dép", "sneaker", "boot", "chân", "cm chân", "bàn chân");
+        // Ưu tiên context lịch sử nếu câu hiện tại không rõ loại
+        if (!isShoe && !history.isEmpty()) {
+            String recentContext = history.stream()
+                    .filter(t -> "user".equals(t.getRole()))
+                    .map(ChatTurn::getContent)
+                    .collect(Collectors.joining(" "));
+            isShoe = containsAny(safeLower(recentContext), "giày", "sneaker", "boot", "dép");
+        }
+
+        String systemPrompt;
+
+        if (isShoe) {
+            // === BẢNG SIZE GIÀY (EU / VN) ===
+            systemPrompt = """
+                    === VAI TRÒ ===
+                    Bạn là trợ lý tư vấn size giày của MemeShop. Hãy tư vấn size giày dựa trên số đo khách cung cấp.
+
+                    === BẢNG SIZE GIÀY (EU / VN) ===
+                    | Size EU | Dài bàn chân (cm) |
+                    |---------|-------------------|
+                    | 35      | 21.5 – 22.0 cm    |
+                    | 36      | 22.0 – 22.5 cm    |
+                    | 37      | 23.0 – 23.5 cm    |
+                    | 38      | 23.5 – 24.0 cm    |
+                    | 39      | 24.5 – 25.0 cm    |
+                    | 40      | 25.0 – 25.5 cm    |
+                    | 41      | 26.0 – 26.5 cm    |
+                    | 42      | 26.5 – 27.0 cm    |
+                    | 43      | 27.5 – 28.0 cm    |
+                    | 44      | 28.0 – 28.5 cm    |
+
+                    === HƯỚNG DẪN ĐO ===
+                    Đặt chân lên tờ giấy, vẽ theo đường viền bàn chân, đo từ gót đến ngón dài nhất.
+                    Nếu chân nằm giữa 2 size → chọn size lớn hơn để thoải mái hơn.
+
+                    === NHIỆM VỤ ===
+                    - Nếu khách cung cấp số cm bàn chân → xác định đúng size EU và tư vấn cụ thể.
+                    - Nếu khách chưa cung cấp số đo → hướng dẫn cách đo và hỏi lại.
+                    - Trả lời ngắn gọn (3-4 câu), thân thiện, dùng emoji phù hợp.
+                    """;
+        } else {
+            // === BẢNG SIZE QUẦN ÁO NỮ (VN) ===
+            systemPrompt = """
+                    === VAI TRÒ ===
+                    Bạn là trợ lý tư vấn size quần áo của MemeShop. Hãy tư vấn size dựa trên số đo khách cung cấp.
+
+                    === BẢNG SIZE QUẦN ÁO NỮ (CHUẨN VN) ===
+                    | Size | Cân nặng   | Chiều cao   | Vòng ngực | Vòng eo  | Vòng mông |
+                    |------|------------|-------------|-----------|----------|-----------|
+                    | XS   | 40 – 45 kg | 150 – 155 cm| 78 – 82 cm| 60 – 63 cm| 84 – 87 cm|
+                    | S    | 45 – 50 kg | 155 – 160 cm| 82 – 85 cm| 63 – 66 cm| 87 – 90 cm|
+                    | M    | 50 – 57 kg | 158 – 163 cm| 85 – 88 cm| 66 – 69 cm| 90 – 93 cm|
+                    | L    | 57 – 63 kg | 162 – 167 cm| 88 – 92 cm| 69 – 73 cm| 93 – 97 cm|
+                    | XL   | 63 – 70 kg | 165 – 170 cm| 92 – 96 cm| 73 – 77 cm| 97 – 101 cm|
+                    | XXL  | 70 – 80 kg | 168 – 175 cm| 96 – 101 cm|77 – 82 cm|101 – 106 cm|
+
+                    === BẢNG SIZE QUẦN ÁO NAM (CHUẨN VN) ===
+                    | Size | Cân nặng   | Chiều cao   | Vòng ngực | Vòng eo  |
+                    |------|------------|-------------|-----------|----------|
+                    | S    | 50 – 58 kg | 160 – 165 cm| 84 – 88 cm| 70 – 74 cm|
+                    | M    | 58 – 66 kg | 165 – 170 cm| 88 – 92 cm| 74 – 78 cm|
+                    | L    | 66 – 74 kg | 170 – 175 cm| 92 – 96 cm| 78 – 82 cm|
+                    | XL   | 74 – 82 kg | 174 – 180 cm| 96 – 101 cm|82 – 87 cm|
+                    | XXL  | 82 – 92 kg | 178 – 185 cm|101 – 106 cm|87 – 93 cm|
+
+                    === LƯU Ý KHI CHỌN SIZE ===
+                    - Nếu cân nặng và chiều cao rơi vào 2 size khác nhau: ưu tiên theo chiều cao đối với áo dài tay/hoodie, theo cân nặng đối với áo thun/váy.
+                    - Với người có body đầy đặn (vòng ngực/eo lớn hơn mức trung bình): chọn lên 1 size.
+                    - Váy/đầm thường rộng hơn áo, có thể giữ nguyên size hoặc xuống 1 size nếu muốn fitted.
+
+                    === NHIỆM VỤ ===
+                    - Nếu khách cung cấp cân nặng và/hoặc chiều cao → xác định size phù hợp và giải thích ngắn gọn.
+                    - Nếu khách nêu loại sản phẩm cụ thể (áo hoodie, váy, sơ mi...) → tư vấn theo đặc điểm sản phẩm đó.
+                    - Nếu khách chưa cung cấp số đo → hỏi thêm cân nặng và chiều cao.
+                    - Trả lời ngắn gọn, thân thiện, dùng emoji. Kết thúc bằng gợi ý xem sản phẩm phù hợp.
+                    """;
+        }
+
+        String response = llmService.generateResponse(systemPrompt, userMessage, history);
+
+        List<QuickReply> quickReplies = new ArrayList<>();
+        if (isShoe) {
+            quickReplies.add(QuickReply.builder().label("👟 Xem giày").value("tôi muốn tìm giày sneaker").build());
+            quickReplies.add(QuickReply.builder().label("📏 Cách đo chân").value("hướng dẫn cách đo chân để chọn size giày").build());
+        } else {
+            quickReplies.add(QuickReply.builder().label("👗 Xem váy").value("tôi muốn tìm váy").build());
+            quickReplies.add(QuickReply.builder().label("👕 Xem áo").value("tôi muốn tìm áo").build());
+            quickReplies.add(QuickReply.builder().label("📐 Bảng size giày").value("bảng size giày theo cm chân").build());
+        }
+
+        return builder
+                .response(response)
+                .quickReplies(quickReplies)
+                .build();
+    }
+
+
 
     private List<Product> searchProductsAdvanced(ProductSearchConstraints c, int limit) {
         Sort sort = buildSort(c.getSortBy());
@@ -1245,7 +1384,7 @@ public class ChatbotServiceImpl implements ChatbotService {
             log.info("[Chatbot] Gemini intent: '{}' for: {}", llmIntent,
                     userMessage.substring(0, Math.min(50, userMessage.length())));
 
-            if (List.of("product", "policy", "order", "greeting", "other").contains(llmIntent)) {
+            if (List.of("product", "policy", "order", "greeting", "size_guide", "other").contains(llmIntent)) {
                 if ("other".equals(llmIntent) && "product".equals(contextService.getLastIntent(sessionId))
                         && isProductFollowUp(userMessage, history, sessionId)) {
                     log.info("[Chatbot] Override Gemini 'other' to 'product' due to follow-up heuristic.");
@@ -1292,6 +1431,23 @@ public class ChatbotServiceImpl implements ChatbotService {
                 "chất liệu", "kích thước", "trọng lượng bao nhiêu",
                 "dung tích", "thành phần", "xuất xứ")) {
             return "specs";
+        }
+
+        // 3. Size guide — nhận diện câu hỏi về kích cỡ quần áo / giày
+        // Ưu tiên check trước product để tránh nhầm khi user nhắc đến "giày" kèm số đo
+        boolean hasMeasurement = containsAny(msg,
+                "mặc size", "size mấy", "mặc số", "số mấy",
+                "bảng size", "size chart", "hướng dẫn size",
+                "cân nặng", "chiều cao", "số đo", "cm chân", "bàn chân",
+                "đi giày số", "đi size", "nặng", "kg",
+                "1m5", "1m6", "1m7", "1m8");
+        // Thêm kiểm tra regex-like: có số + kg hoặc số + cm
+        boolean hasMeasurementPattern = msg.matches(".*\\d+\\s*(kg|cm|m|pound).*");
+        if (hasMeasurement || hasMeasurementPattern) {
+            // Chỉ phân loại size_guide nếu không phải câu hỏi về tìm sản phẩm thuần túy
+            if (!containsAny(msg, "tìm", "gợi ý", "có bán", "giá bao nhiêu", "mua")) {
+                return "size_guide";
+            }
         }
 
         if (containsAny(msg, "có bán", "bán không", "shop có", "shop bán",
